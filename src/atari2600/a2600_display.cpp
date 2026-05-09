@@ -283,14 +283,14 @@ static bool a2600_prepare_luts(const A2600RenderPlan& plan)
     }
 
     for (int x = 0; x < plan.dstW; ++x) {
-        s_xmap[x] = (int16_t)(plan.srcX0 + ((int64_t)x * plan.roiW) / plan.dstW);
+        s_xmap[x] = (int16_t)(plan.srcX0 + (x * plan.roiW) / plan.dstW);
     }
 
     for (int y = 0; y < plan.dstH; ++y) {
         if (plan.dstH == plan.roiH && !a2600FullScreen && s_use_ext) {
             s_ymap[y] = (int16_t)(plan.srcY0 + y);
         } else {
-            s_ymap[y] = (int16_t)(plan.srcY0 + ((int64_t)y * plan.roiH) / plan.dstH);
+            s_ymap[y] = (int16_t)(plan.srcY0 + (y * plan.roiH) / plan.dstH);
         }
     }
 

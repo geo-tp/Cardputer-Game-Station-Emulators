@@ -112,7 +112,8 @@ int64_t rfread(void* buffer,
    if (!stream || (elem_size == 0) || (elem_count == 0))
       return 0;
 
-   return (filestream_read(stream, buffer, elem_size * elem_count) / elem_size);
+   int64_t bytes = filestream_read(stream, buffer, elem_size * elem_count);
+   return bytes <= 0 ? bytes : (int64_t)((size_t)bytes / elem_size);
 }
 
 char *rfgets(char *buffer, int maxCount, RFILE* stream)
@@ -137,7 +138,8 @@ int64_t rfwrite(void const* buffer,
    if (!stream || (elem_size == 0) || (elem_count == 0))
       return 0;
 
-   return (filestream_write(stream, buffer, elem_size * elem_count) / elem_size);
+   int64_t bytes = filestream_write(stream, buffer, elem_size * elem_count);
+   return bytes <= 0 ? bytes : (int64_t)((size_t)bytes / elem_size);
 }
 
 int rfputc(int character, RFILE * stream)

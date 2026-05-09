@@ -95,10 +95,10 @@ static void ws_display_compute_scaler() {
 
   // LUT X/Y
   for (int dx = 0; dx < s_dstW; ++dx) {
-    s_xmap[dx] = (uint16_t)(roiX0 + ((int64_t)dx * roiW / s_dstW));
+    s_xmap[dx] = (uint16_t)(roiX0 + ((dx * roiW) / s_dstW));
   }
   for (int dy = 0; dy < s_dstH; ++dy) {
-    s_ymap[dy] = (uint16_t)(roiY0 + ((int64_t)dy * roiH / s_dstH));
+    s_ymap[dy] = (uint16_t)(roiY0 + ((dy * roiH) / s_dstH));
   }
 }
 

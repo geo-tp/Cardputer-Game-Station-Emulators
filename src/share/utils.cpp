@@ -3,6 +3,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <rom/ets_sys.h>
+#include <stdint.h>
 
 namespace share {
 
@@ -15,7 +16,8 @@ void sleep_until_us(uint64_t t_us)
 
         if (remain > 2000) {
             // big wait
-            vTaskDelay(pdMS_TO_TICKS((remain - 1000) / 1000));
+            const uint32_t wait_us = (remain > INT32_MAX) ? (uint32_t)INT32_MAX : (uint32_t)(remain - 1000);
+            vTaskDelay(pdMS_TO_TICKS(wait_us / 1000u));
         } else {
             // short busy wait
             ets_delay_us((uint32_t)remain);

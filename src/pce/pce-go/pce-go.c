@@ -324,7 +324,7 @@ void RunPCE(void)
 {
     running = true;
 
-    const uint64_t frameDurationUs = 1000000ULL / 60ULL; // 60 fps target
+    const uint32_t frameDurationUs = 1000000u / 60u; // 60 fps target
 
     uint64_t lastFpsTime   = esp_timer_get_time();
     uint32_t frameCounter  = 0;
@@ -357,7 +357,7 @@ void RunPCE(void)
 
         if (remain > 2000) {
             // gros reste
-            vTaskDelay(remain / 1000);
+            vTaskDelay((uint32_t)remain / 1000u);
         } else if (remain > 0) {
             // petit reste
             ets_delay_us((uint32_t)remain);

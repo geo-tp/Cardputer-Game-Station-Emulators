@@ -130,10 +130,10 @@ static inline void compute_common(bool fullscreenMode){
 
   // mapping (xmap / ymap)
   for (int x = 0; x < dstW; ++x)
-    xmap[x] = (uint16_t)(roiX0 + ((int64_t)x * roiW / dstW));
+    xmap[x] = (uint16_t)(roiX0 + ((x * roiW) / dstW));
 
   for (int y = 0; y < dstH; ++y)
-    ymap[y] = (uint16_t)(roiY0 + ((int64_t)y * roiH / dstH));
+    ymap[y] = (uint16_t)(roiY0 + ((y * roiH) / dstH));
 }
 
 void video_compute_scaler_full()   { compute_common(true);  }

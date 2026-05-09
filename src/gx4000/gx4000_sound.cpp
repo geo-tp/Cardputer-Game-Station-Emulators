@@ -109,7 +109,7 @@ static void update_effective_rate(void)
     if (elapsed < 1000U) return;
 
     uint32_t produced = s_statPushed - s_pushedAtWindow;
-    uint32_t measured = (uint32_t)((uint64_t)produced * 1000ULL / (uint64_t)elapsed);
+    uint32_t measured = (produced * 1000U) / elapsed;
     if (measured < 8000U)  measured = 8000U;
     if (measured > 22050U) measured = 22050U;
 
