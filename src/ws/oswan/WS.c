@@ -45,6 +45,7 @@ static WORD VTimer;
 static int RtcCount;
 static int RAMEnable;
 int FrameSkip = 1;
+static int GDmaExtraCycles;
 static int SkipCnt = 0;
 static int TblSkip[5][5] = {
     {1,1,1,1,1},
@@ -66,6 +67,54 @@ static WORD DefColor[] = {
     MONO(0xF), MONO(0xE), MONO(0xD), MONO(0xC), MONO(0xB), MONO(0xA), MONO(0x9), MONO(0x8),
     MONO(0x7), MONO(0x6), MONO(0x5), MONO(0x4), MONO(0x3), MONO(0x2), MONO(0x1), MONO(0x0)
 };
+
+static int WsGdmaSourceIsValid(DWORD source)
+{
+    const int page = (int)((source >> 16) & 0x0F);
+
+    if (page == 0x01 && RAMEnable) return 0;
+    if (page >= 0x02 && (HWARCH & 0x08)) return 0;
+    return 1;
+}
+
+static void WsRunGdma(void)
+{
+    DWORD source = DMASRC & 0x0FFFFE;
+    WORD dest = DMADST & 0xFFFE;
+    WORD length = DMACNT & 0xFFFE;
+    const int step = (IO[0x48] & 0x40) ? -2 : 2;
+    WORD remaining = length;
+
+    if (!remaining || !WsGdmaSourceIsValid(source))
+    {
+        IO[0x48] &= 0x7F;
+        return;
+    }
+
+    while(remaining)
+    {
+        if (!WsGdmaSourceIsValid(source)) break;
+        BYTE lo = ReadMem(source);
+        BYTE hi = ReadMem(source + 1);
+        WriteMem(dest, lo);
+        WriteMem((WORD)(dest + 1), hi);
+        source = (DWORD)((source + step) & 0x0FFFFE);
+        dest = (WORD)(dest + step);
+        remaining -= 2;
+    }
+
+    WORD transferred = (WORD)(length - remaining);
+    if(transferred)
+    {
+        GDmaExtraCycles += 5 + (int)transferred;
+        WS_BENCH_INC(gdmaTransfers);
+        WS_BENCH_ADD(gdmaBytes, transferred);
+    }
+    DMACNT = remaining;
+    DMASRC = source;
+    DMADST = dest;
+    IO[0x48] &= 0x7F;
+}
 
 void WsAllocateBuffers(void)
 {
@@ -440,19 +489,9 @@ void  WriteIO(DWORD A, BYTE V)
     case 0x48:
         if(V & 0x80)
         {
-            i = DMASRC;
-            j = DMADST;
-            k = DMACNT;
-            WS_BENCH_INC(gdmaTransfers);
-            WS_BENCH_ADD(gdmaBytes, k);
-            while(k--)
-            {
-                WriteMem(j++, ReadMem(i++));
-            }
-            DMACNT = 0;
-            DMASRC = i;
-            DMADST = j;
-            V &= 0x7F;
+            IO[A] = V;
+            WsRunGdma();
+            return;
         }
         break;
     case 0x80:
@@ -823,6 +862,7 @@ void WsReset (void)
     IRAM[0x75B2]=0x63;
     IRAM[0x75B3]=0x31;
     apuWaveClear();
+    GDmaExtraCycles = 0;
     ButtonState = 0x0000;
 	for (i = 0; i < 11; i++)
 	{
@@ -1007,6 +1047,11 @@ int WsRun(void)
     for(i = 0; i < 159 * 8; i++) // 1/75s
     {
         cycle = nec_execute(period);
+        if(GDmaExtraCycles)
+        {
+            cycle += GDmaExtraCycles;
+            GDmaExtraCycles = 0;
+        }
         period += IPeriod - cycle;
         if(Interrupt())
         {
