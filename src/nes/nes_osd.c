@@ -15,6 +15,7 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <esp_heap_caps.h>
+#include <esp_timer.h>
 #include "esp_partition.h"
 #include "esp_spi_flash.h"
 
@@ -66,6 +67,51 @@ extern void osd_set_rompath_for_saves(const char *p);
 
 /* This runs on core 0 */
 QueueHandle_t vidQueue;
+
+#ifdef BENCHMARK_LOGS
+static uint32_t s_benchCoreFrames = 0;
+static uint32_t s_benchDrawnFrames = 0;
+static uint32_t s_benchDroppedFrames = 0;
+static uint64_t s_benchRenderUs = 0;
+static int64_t  s_benchLastLogUs = 0;
+
+static void nes_benchmark_log_if_due(void)
+{
+    int64_t now = esp_timer_get_time();
+    if (s_benchLastLogUs == 0) {
+        s_benchLastLogUs = now;
+        return;
+    }
+
+    int64_t elapsed = now - s_benchLastLogUs;
+    if (elapsed < 2000000LL) return;
+
+    float seconds = (float)elapsed / 1000000.0f;
+    float coreFps = (float)s_benchCoreFrames / seconds;
+    float drawnFps = (float)s_benchDrawnFrames / seconds;
+    float avgRenderUs = s_benchDrawnFrames
+        ? (float)s_benchRenderUs / (float)s_benchDrawnFrames
+        : 0.0f;
+    float speedPct = (coreFps / 60.0f) * 100.0f;
+
+    printf(
+        "[NES][BENCH] core=%.2f fps (%.1f%%) | drawn=%.2f fps | render=%.1f us | drop=%lu | heap=%u\n",
+        coreFps,
+        speedPct,
+        drawnFps,
+        avgRenderUs,
+        (unsigned long)s_benchDroppedFrames,
+        (unsigned)esp_get_free_heap_size()
+    );
+
+    s_benchCoreFrames = 0;
+    s_benchDrawnFrames = 0;
+    s_benchDroppedFrames = 0;
+    s_benchRenderUs = 0;
+    s_benchLastLogUs = now;
+}
+#endif
+
 static void displayTask(void *arg)
 {
     bitmap_t *bmp = NULL;
@@ -73,9 +119,15 @@ static void displayTask(void *arg)
     while (1) {
         if (xQueueReceive(vidQueue, &bmp, portMAX_DELAY) == pdTRUE) {
             if (!bmp || !bmp->line[0]) { nofrendo_log_printf("OSD: bad bmp\n"); continue; }
+#ifdef BENCHMARK_LOGS
+            int64_t renderStart = esp_timer_get_time();
+#endif
             display_write_frame((const uint8_t **)bmp->line);
-            static uint32_t frames=0;
-            if ((++frames & 0x3F) == 0) nofrendo_log_printf("OSD: frames=%lu\n", (unsigned long)frames);
+#ifdef BENCHMARK_LOGS
+            s_benchRenderUs += (uint64_t)(esp_timer_get_time() - renderStart);
+            s_benchDrawnFrames++;
+            nes_benchmark_log_if_due();
+#endif
         }
     }
 }
@@ -140,10 +192,14 @@ static void free_write(int num_dirties, rect_t *dirty_rects)
 static void custom_blit(bitmap_t *bmp, int num_dirties, rect_t *dirty_rects)
 {
     (void)num_dirties; (void)dirty_rects;
-    static uint32_t blits=0;
-    if ((++blits & 0x3F) == 0) nofrendo_log_printf("OSD: blit %lu\n", (unsigned long)blits);
+#ifdef BENCHMARK_LOGS
+    s_benchCoreFrames++;
+#endif
     if (xQueueSend(vidQueue, &bmp, 0) != pdPASS) {
         bitmap_t *tmp; xQueueReceive(vidQueue, &tmp, 0);
+#ifdef BENCHMARK_LOGS
+        s_benchDroppedFrames++;
+#endif
         (void)xQueueSend(vidQueue, &bmp, 0);
     }
     do_audio_frame();
@@ -205,6 +261,9 @@ static int logprint(const char *string) { return printf("%s", string); }
 int osd_init(void)
 {
     nofrendo_log_chain_logfunc(logprint);
+#ifdef BENCHMARK_LOGS
+    printf("[NES][BENCH] enabled\n");
+#endif
 
     if (osd_init_sound()) return -1;
 
