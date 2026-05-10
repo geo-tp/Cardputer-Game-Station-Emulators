@@ -320,6 +320,36 @@ static void mmc5_latchfunc(uint32 vram_base, uint8 tile)
         m5.chr_fetch_count++;
 }
 
+static bool mmc5_bgfunc(uint32 address, uint8 tile, uint8 fine_y,
+                        uint8 *col_high, uint8 **data_ptr)
+{
+    rominfo_t *cart;
+    uint16 ex_index;
+    uint8 ex_attr;
+    int bank4, bank_count;
+    uint32 offset;
+
+    if (m5.ext_mode != 1 || !m5.exram)
+        return false;
+
+    cart = mmc_getinfo();
+    if (!cart || !cart->vrom || !cart->vrom_banks)
+        return false;
+
+    ex_index = (uint16)(address & 0x03FF);
+    if (ex_index >= 0x03C0)
+        return false;
+
+    ex_attr = m5.exram[ex_index];
+    bank4 = ((int)(m5.chr_high2 & 0x03) << 6) | (int)(ex_attr & 0x3F);
+    bank_count = cart->vrom_banks * 2;
+    offset = (uint32)((bank4 % bank_count) << 12) + ((uint32)tile << 4) + (fine_y & 7);
+
+    *col_high = (uint8)((ex_attr >> 6) << 2);
+    *data_ptr = &cart->vrom[offset];
+    return true;
+}
+
 /* ---------- IRQ (scanline) & timer approximation ---------- */
 
 static void map5_hblank(int vblank)
@@ -590,6 +620,7 @@ static void map5_init(void)
   mmc5_apply_nametable();
   mmc5_apply_chr_S();        /* default to Set A active */
   ppu_setlatchfunc(mmc5_latchfunc);
+  ppu_setbgfunc(mmc5_bgfunc);
 
   nofrendo_log_printf("MMC5 init (puNES-style drop-in)\n");
 }
