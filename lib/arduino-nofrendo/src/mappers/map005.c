@@ -69,18 +69,17 @@ typedef struct {
 
   /* CHR set currently applied: 0 = Set A (sprites), 1 = Set B (background) */
   uint8  chr_set_active;
+  uint16 chr_fetch_count;
 
   /* WRAM backing store (64K superset like puNES) */
   uint8  *wram;
   size_t wram_size;
+  uint8  cpu_page_is_wram[16];
 
   /* math unit & timer (MMC5) */
   uint8  mul_a, mul_b;     /* $5205/$5206 → read low/high product */
   uint16 timer_count;      /* $5209/$520A */
 
-  /* latchfunc bookkeeping (reset each frame; avoids static locals) */
-  uint8  latch_init_done;
-  uint8  latch_bg_half;    /* 0 if $0000 half considered BG, 1 if $1000 */
 } mmc5_t;
 
 static mmc5_t m5;
@@ -90,14 +89,21 @@ static const uint8 filler_attrib[4] = { 0x00, 0x55, 0xAA, 0xFF };
 
 /* ---------- Internal helpers ---------- */
 
+static int mmc5_wram_write_enabled(void)
+{
+    return (m5.wram_protect[0] == 0x02) && (m5.wram_protect[1] == 0x01);
+}
+
 /* --- CPU 8K helper mapping (direct page pointer install) --- */
-static void cpu_map_8k(uint32 address, uint8 *src)
+static void cpu_map_8k(uint32 address, uint8 *src, int is_wram)
 {
     nes6502_context c; nes6502_getcontext(&c);
     int page = (int)(address >> NES6502_BANKSHIFT);
     c.mem_page[page+0] = src + 0x0000;
     c.mem_page[page+1] = src + 0x1000;
     nes6502_setcontext(&c);
+    m5.cpu_page_is_wram[page+0] = is_wram ? 1 : 0;
+    m5.cpu_page_is_wram[page+1] = is_wram ? 1 : 0;
 }
 
 /* Map WRAM 8K window (bit7 ignored; bank wraps over wram_size) */
@@ -106,11 +112,11 @@ static void prg_map_wram8(uint32 address, uint8 bank7)
     uint8 *base = m5.wram;
     if (!base) { 
       static uint8 zero = 0;
-      cpu_map_8k(address, &zero);
+      cpu_map_8k(address, &zero, 0);
       return;
     }
     size_t off = ((size_t)(bank7 & 0x7F) << 13) % (m5.wram ? m5.wram_size : 0x2000);
-    cpu_map_8k(address, base + off);
+    cpu_map_8k(address, base + off, 1);
 }
 
 /* puNES maps $6000 via prg[0] with write-protect; we map the data here */
@@ -125,7 +131,27 @@ static void mmc5_apply_wram_6000(void)
 /* Map PRG ROM 8K — IMPORTANT: mask bit7 (ROM/RAM flag) from the bank index. */
 static void prg_map_rom8(uint32 address, uint8 bank)
 {
+    int page = (int)(address >> NES6502_BANKSHIFT);
     mmc_bankrom(8, address, (bank & 0x7F));
+    m5.cpu_page_is_wram[page+0] = 0;
+    m5.cpu_page_is_wram[page+1] = 0;
+}
+
+static void prg_map_rom16(uint32 address, uint8 bank)
+{
+    int page = (int)(address >> NES6502_BANKSHIFT);
+    mmc_bankrom(16, address, bank);
+    m5.cpu_page_is_wram[page+0] = 0;
+    m5.cpu_page_is_wram[page+1] = 0;
+    m5.cpu_page_is_wram[page+2] = 0;
+    m5.cpu_page_is_wram[page+3] = 0;
+}
+
+static void prg_map_rom32(uint32 address, uint8 bank)
+{
+    mmc_bankrom(32, address, bank);
+    for (int page = 8; page < 16; page++)
+        m5.cpu_page_is_wram[page] = 0;
 }
 
 /* MMC5: PRG regs carry a ROM/RAM flag in bit7; choose destination accordingly. */
@@ -180,19 +206,13 @@ static void mmc5_apply_nametable(void)
   ppu_mirrorhipages();
 }
 
-/* Map $6000 selon $5113 : bit7=1 -> ROM, bit7=0 -> WRAM (avec WP si dispo) */
+/* $5113 always selects PRG-RAM at $6000-$7FFF; bit 7 is ignored. */
 static void mmc5_apply_6000(void)
 {
     int enable = (m5.wram_protect[0] == 0x02) && (m5.wram_protect[1] == 0x01);
     (void)enable; /* TODO WP par page si ton core le supporte */
 
-    if (m5.prg[0] & 0x80) {
-        /* ROM 8K @ $6000 */
-        mmc_bankrom(8, 0x6000, (m5.prg[0] & 0x7F));
-    } else {
-        /* WRAM 8K @ $6000 */
-        prg_map_wram8(0x6000, m5.prg[0]);
-    }
+    prg_map_wram8(0x6000, m5.prg[0]);
 }
 
 /* ---------- PRG mapping (puNES prg_fix equivalent through mmc_bankrom()) ---------- */
@@ -203,27 +223,27 @@ static void mmc5_apply_prg(void)
 
     switch (m5.prg_mode) {
     case 0: /* 32K @8000 : prg[4] >> 2 is always ROM */
-        mmc_bankrom(32, 0x8000, (m5.prg[4] >> 2));
+        prg_map_rom32(0x8000, (m5.prg[4] >> 2));
         break;
 
     case 1: /* 8K @8000+A000 (even/odd of prg[2]), 16K ROM @C000 */
         prg_swap(0x8000, (m5.prg[2] & ~1));
         prg_swap(0xA000, (m5.prg[2] |  1));
-        mmc_bankrom(16, 0xC000, (m5.prg[4] >> 1));
+        prg_map_rom16(0xC000, (m5.prg[4] >> 1));
         break;
 
     case 2: /* 8K @8000, A000, C000 (WRAM/ROM), fixed 8K ROM @E000 */
         prg_swap(0x8000, (m5.prg[2] & ~1));
         prg_swap(0xA000, (m5.prg[2] |  1));
         prg_swap(0xC000,  m5.prg[3]);
-        mmc_bankrom(8, 0xE000, (m5.prg[4] & 0x7F)); /* mask not strictly needed but harmless */
+        prg_map_rom8(0xE000, (m5.prg[4] & 0x7F)); /* mask not strictly needed but harmless */
         break;
 
     case 3: /* 8K @8000, A000, C000 (WRAM/ROM), fixed 8K ROM @E000 */
         prg_swap(0x8000, m5.prg[1]);
         prg_swap(0xA000, m5.prg[2]);
         prg_swap(0xC000, m5.prg[3]);
-        mmc_bankrom(8, 0xE000, (m5.prg[4] & 0x7F));
+        prg_map_rom8(0xE000, (m5.prg[4] & 0x7F));
         break;
     }
 }
@@ -234,15 +254,15 @@ static void mmc5_apply_chr_S(void)
 {
     switch (m5.chr_mode) {
     case 0: /* 8K */
-        mmc_bankvrom(8, 0x0000, (int)(m5.chr[7] >> 3)); break;
+        mmc_bankvrom(8, 0x0000, (int)m5.chr[7]); break;
     case 1: /* 4K + 4K */
-        mmc_bankvrom(4, 0x0000, (int)(m5.chr[3] >> 2));
-        mmc_bankvrom(4, 0x1000, (int)(m5.chr[7] >> 2)); break;
+        mmc_bankvrom(4, 0x0000, (int)m5.chr[3]);
+        mmc_bankvrom(4, 0x1000, (int)m5.chr[7]); break;
     case 2: /* 2K x4 */
-        mmc_bankvrom(2, 0x0000, (int)(m5.chr[1] >> 1));
-        mmc_bankvrom(2, 0x0800, (int)(m5.chr[3] >> 1));
-        mmc_bankvrom(2, 0x1000, (int)(m5.chr[5] >> 1));
-        mmc_bankvrom(2, 0x1800, (int)(m5.chr[7] >> 1)); break;
+        mmc_bankvrom(2, 0x0000, (int)m5.chr[1]);
+        mmc_bankvrom(2, 0x0800, (int)m5.chr[3]);
+        mmc_bankvrom(2, 0x1000, (int)m5.chr[5]);
+        mmc_bankvrom(2, 0x1800, (int)m5.chr[7]); break;
     case 3: /* 1K x8 */
         mmc_bankvrom(1, 0x0000, (int)m5.chr[0]);
         mmc_bankvrom(1, 0x0400, (int)m5.chr[1]);
@@ -260,15 +280,15 @@ static void mmc5_apply_chr_B(void)
 {
     switch (m5.chr_mode) {
     case 0:
-        mmc_bankvrom(8, 0x0000, (int)(m5.chr[11] >> 3)); break;
+        mmc_bankvrom(8, 0x0000, (int)m5.chr[11]); break;
     case 1:
-        mmc_bankvrom(4, 0x0000, (int)(m5.chr[11] >> 2));
-        mmc_bankvrom(4, 0x1000, (int)(m5.chr[11] >> 2)); break;
+        mmc_bankvrom(4, 0x0000, (int)m5.chr[11]);
+        mmc_bankvrom(4, 0x1000, (int)m5.chr[11]); break;
     case 2:
-        mmc_bankvrom(2, 0x0000, (int)(m5.chr[9] >> 1));
-        mmc_bankvrom(2, 0x0800, (int)(m5.chr[11] >> 1));
-        mmc_bankvrom(2, 0x1000, (int)(m5.chr[9] >> 1));
-        mmc_bankvrom(2, 0x1800, (int)(m5.chr[11] >> 1)); break;
+        mmc_bankvrom(2, 0x0000, (int)m5.chr[9]);
+        mmc_bankvrom(2, 0x0800, (int)m5.chr[11]);
+        mmc_bankvrom(2, 0x1000, (int)m5.chr[9]);
+        mmc_bankvrom(2, 0x1800, (int)m5.chr[11]); break;
     case 3:
         mmc_bankvrom(1, 0x0000, (int)m5.chr[8]);
         mmc_bankvrom(1, 0x0400, (int)m5.chr[9]);
@@ -282,57 +302,53 @@ static void mmc5_apply_chr_B(void)
     m5.chr_set_active = 1;
 }
 
-/* ---------- PPU latch hook (tile-based): approximate set A/B selection ----------
-   puNES flips between sets at precise PPU phases (x=256, x=320, $2007 reads, etc.).
-   Here we keep your half-heuristic but:
-   - make it deterministic per frame (no static locals),
-   - avoid sticky state across resets/loads,
-   - and prefer Set B on the "BG half" detected early each frame.
-   NOTE: If you can query sprite size (8x8 vs 8x16) from your PPU, force Set A for 8x8,
-         as puNES uses Set A for everything in that mode. */
+/* MMC5 uses separate CHR register sets only for 8x16 sprites. Nofrendo's
+   latch hook is tile-oriented, so count the 33 background fetches first and
+   use set B for those; later sprite fetches use set A. */
 static void mmc5_latchfunc(uint32 vram_base, uint8 tile)
 {
+    UNUSED(vram_base);
     UNUSED(tile);
-    int half = (vram_base & 0x1000) ? 1 : 0;
 
-    if (!m5.latch_init_done) {
-        m5.latch_bg_half = (uint8)half;
-        m5.latch_init_done = 1;
-    }
-
-    if (half == m5.latch_bg_half) {
+    if (ppu_obj_8x16() && m5.chr_fetch_count < 33) {
         if (m5.chr_set_active != 1) mmc5_apply_chr_B();
     } else {
         if (m5.chr_set_active != 0) mmc5_apply_chr_S();
     }
+
+    if (m5.chr_fetch_count < 0xFFFF)
+        m5.chr_fetch_count++;
 }
 
 /* ---------- IRQ (scanline) & timer approximation ---------- */
 
 static void map5_hblank(int vblank)
 {
-  /* Frame/scanline bookkeeping for $5204 and scanline IRQ */
-  if (vblank) {
+  int rendering = (!vblank && ppu_enabled());
+
+  /* MMC5 only detects scanlines while the PPU is actively rendering. */
+  if (!rendering) {
     m5.in_frame = 0;
     m5.prev_vblank = 1;
     m5.irq_line   = 0;
-    m5.irq_pending= 0;
     m5.timer_line = 0;
-    m5.latch_init_done = 0;
-  } else {
+    m5.chr_fetch_count = 0;
+  } else if (!m5.in_frame) {
     m5.in_frame = 1;
-    if (m5.prev_vblank) {
-      m5.prev_vblank = 0;
-      m5.scanline = 0;         /* start of visible frame */
-    } else if (m5.scanline < 239) {
-      m5.scanline++;
-    }
+    m5.prev_vblank = 0;
+    m5.scanline = 0;
+    m5.irq_pending = 0;        /* scanline 0 acknowledges pending IRQ */
+    m5.irq_line = 0;
+    m5.chr_fetch_count = 0;
+  } else {
+    m5.scanline = (m5.scanline + 1) & 0xFF;
+    m5.chr_fetch_count = 0;
   }
 
-   /* MMC5 scanline IRQ: triggers when scanline == latch (in-frame only) */
-   if (m5.irq_enable && (m5.scanline == m5.irq_latch) && m5.in_frame) {
+   /* $5203 value 0 is a special case and never creates a new pending IRQ. */
+   if (m5.irq_latch && (m5.scanline == m5.irq_latch) && m5.in_frame) {
       m5.irq_pending = 1;
-      if (!m5.irq_line) {          /* edge only */
+      if (m5.irq_enable && !m5.irq_line) {          /* edge only */
          m5.irq_line = 1;
          nes_irq();               /* pulse unique */
       }
@@ -470,12 +486,29 @@ static void map5_write(uint32 address, uint8 value)
   }
 }
 
+static void map5_write_prg(uint32 address, uint8 value)
+{
+  int page = (int)(address >> NES6502_BANKSHIFT);
+
+  if (page < 0 || page >= 16)
+    return;
+
+  if (!m5.cpu_page_is_wram[page] || !mmc5_wram_write_enabled())
+    return;
+
+  nes6502_context c;
+  nes6502_getcontext(&c);
+  if (!c.mem_page[page])
+    return;
+  c.mem_page[page][address & NES6502_BANKMASK] = value;
+}
+
 /* Low-range reads for MMC5 I/O */
 static uint8 map5_read_low(uint32 address)
 {
   switch (address) {
    case 0x5204: {
-      uint8 v = (m5.in_frame ? 0x80 : 0x00) | (m5.irq_pending ? 0x40 : 0x00);
+      uint8 v = (m5.irq_pending ? 0x80 : 0x00) | (m5.in_frame ? 0x40 : 0x00);
       m5.irq_pending = 0;
       m5.irq_line = 0;
       return v;
@@ -547,8 +580,8 @@ static void map5_init(void)
   memset(&m5.fill_table[0x3C0], 0x00, 0x40); /* filler_attrib[0] */
   memset(m5.exram, 0x00, 0x400);
 
-  /* WRAM 8K */
-  m5.wram_size = 0x2000;
+  /* MMC5 PRG-RAM: 64K is a compatible superset for commercial ExROM games. */
+  m5.wram_size = 0x10000;
   m5.wram = (uint8*)NOFRENDO_MALLOC(m5.wram_size);
   if (m5.wram) memset(m5.wram, 0x00, m5.wram_size);
 
@@ -574,8 +607,7 @@ static void map5_setstate(SnssMapperBlock *state)
   mmc5_apply_prg();
   (m5.chr_set_active ? mmc5_apply_chr_B() : mmc5_apply_chr_S());
   mmc5_apply_nametable();
-  /* Reset latch heuristic on load to avoid stale state. */
-  m5.latch_init_done = 0;
+  m5.chr_fetch_count = 0;
 }
 
 /* ---------- Mapper tables ---------- */
@@ -584,7 +616,7 @@ static map_memwrite map5_memwrite[] = {
   /* $5000–$5015 MMC5 audio handled elsewhere */
   { 0x5016, 0x5BFF, map5_write },
   { 0x5C00, 0x5FFF, map5_write_exram },
-  { 0x8000, 0xFFFF, map5_write },
+  { 0x6000, 0xFFFF, map5_write_prg },
   { -1, -1, NULL }
 };
 

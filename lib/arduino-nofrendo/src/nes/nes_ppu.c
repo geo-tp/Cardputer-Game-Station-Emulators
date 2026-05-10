@@ -597,6 +597,11 @@ void ppu_setvromswitch(ppuvromswitch_t func)
    ppu.vromswitch = func;
 }
 
+bool ppu_obj_8x16(void)
+{
+   return (16 == ppu.obj_height);
+}
+
 /* rendering routines */
 INLINE void draw_bgtile(uint8 *surface, uint8 pat1, uint8 pat2,
                         const uint8 *colors)
@@ -748,12 +753,12 @@ static void ppu_renderbg(uint8 *vidbuf)
    {
       /* Tile number from nametable */
       tile_index = *tile_ptr++;
-      data_ptr = &PPU_MEM(bg_offset + (tile_index << 4));
 
       /* Handle $FD/$FE tile VROM switching (PunchOut) */
       if (ppu.latchfunc)
          ppu.latchfunc(ppu.bg_base, tile_index);
 
+      data_ptr = &PPU_MEM(bg_offset + (tile_index << 4));
       draw_bgtile(bmp_ptr, data_ptr[0], data_ptr[8], ppu.palette + col_high);
       bmp_ptr += 8;
 

@@ -115,6 +115,7 @@ typedef struct ppu_s
 /* TODO: should use this pointers */
 extern void ppu_setlatchfunc(ppulatchfunc_t func);
 extern void ppu_setvromswitch(ppuvromswitch_t func);
+extern bool ppu_obj_8x16(void);
 
 extern void ppu_getcontext(ppu_t *dest_ppu);
 extern void ppu_setcontext(ppu_t *src_ppu);
