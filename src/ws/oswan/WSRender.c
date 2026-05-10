@@ -4,6 +4,13 @@ $Rev: 71 $
 */
 #include <string.h>
 
+#ifdef WS_PPU_IRAM
+#include <esp_attr.h>
+#define WS_PPU_CODE IRAM_ATTR
+#else
+#define WS_PPU_CODE
+#endif
+
 #include "WSRender.h"
 #include "WS.h"
 #include "WSSegment.h"
@@ -87,7 +94,7 @@ void SetPalette(int addr)
     Palette[(addr & 0x1E0) >> 5][(addr & 0x1E) >> 1] = r | g | b;
 }
 
-void RefreshLine(int Line)
+WS_PPU_CODE void RefreshLine(int Line)
 {
     WORD *pSBuf;            // �f�[�^�������݃o�b�t�@
     WORD *pSWrBuf;          // ���̏������݈ʒu�p�|�C���^
