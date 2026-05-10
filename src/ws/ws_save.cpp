@@ -13,6 +13,7 @@ extern "C" {
 extern int RAMSize;
 extern int RAMBanks;
 extern unsigned char** RAMMap;
+extern unsigned char* MemDummy;
 extern int CartKind;
 }
 
@@ -145,7 +146,7 @@ void ws_save_init(const char* romPathOrName){
   bool ok_size = false;
   #endif
 
-  if (!ok_size || RAMBanks < 1 || !RAMMap || !RAMMap[0]) {
+  if (!ok_size || RAMBanks < 1 || !RAMMap || !RAMMap[0] || RAMMap[0] == MemDummy) {
     EMU_LOG("[WS][SAVE] ignored (size=%d, banks=%d, kind=%s)\n",
            RAMSize, RAMBanks, is_eep ? "EEP" : "SRAM");
     g_sram      = nullptr;

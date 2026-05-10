@@ -399,19 +399,24 @@ int WsCreateFromMemory(const uint8_t *romData, size_t romSize)
         ROMMap[dst] = (ofs < romSize) ? (BYTE*)(romData + ofs) : MemDummy;
     }
 
-    /* SRAM 1/2 page (32KB) */
-    /* Can't support game with multiple RAM banks, no mem space left for that */
-    /* MAX_SRAM_ALLOCATED is defined in WS.c */
+    /* Save memory. EEPROM does not map into page 1, so allocate only the
+       declared EEPROM payload. SRAM keeps the existing 32 KiB page window. */
+    for (i = 0; i < 256; ++i) RAMMap[i] = MemDummy;
     if (RAMBanks == 1) {
-        BYTE* one = (BYTE*)malloc(0x8000);
+        const size_t allocSize = (CartKind & CK_EEP) ? (size_t)RAMSize : 0x8000u;
+        BYTE* one = allocSize ? (BYTE*)malloc(allocSize) : NULL;
         if (!one) {
-            printf("[WS] RAM malloc 32K failed, mapping to MemDummy\n");
-            for (i = 0; i < 256; ++i) RAMMap[i] = MemDummy;
+            printf("[WS] Save memory malloc %uB failed, mapping to MemDummy\n", (unsigned)allocSize);
         } else {
-            memset(one, 0x00, 0x8000);  
+            memset(one, (CartKind & CK_EEP) ? 0xFF : 0x00, allocSize);
             RAMMap[0] = one; 
-            for (i = RAMBanks; i < 256; ++i) RAMMap[i] = MemDummy;
+            printf("[WS] Save memory allocated: %u bytes (%s)\n",
+                   (unsigned)allocSize,
+                   (CartKind & CK_EEP) ? "EEP" : "SRAM");
         }
+    } else if (RAMBanks > 1) {
+        printf("[WS] Multi-bank SRAM unsupported in XIP mode (%d banks, size=0x%X)\n",
+               RAMBanks, RAMSize);
     }
 
     WsReset();
