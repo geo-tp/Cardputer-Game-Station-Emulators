@@ -178,7 +178,7 @@ void CardputerView::welcome() {
 
     // Remove the welcome image from the binary to save space in case REMOVE_PRINTF is not defined
     #ifdef REMOVE_PRINTF
-        Display->pushImage(0, 0, BGGAMESTATION_S_WIDTH, BGGAMESTATION_S_HEIGHT, bggamestation_s);
+        // Display->pushImage(0, 0, BGGAMESTATION_S_WIDTH, BGGAMESTATION_S_HEIGHT, bggamestation_s);
     #endif
    
     // Title

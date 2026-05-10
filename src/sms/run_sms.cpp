@@ -146,29 +146,29 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
       delayMicroseconds(remaining);
     }
     
-    // // Realtime
-    // uint32_t frameUs = micros() - t0;
+    // Realtime
+    uint32_t frameUs = micros() - t0;
 
-    // // Stats
-    // avgFrameTime += emuUs;      // perf brute
-    // avgFrameTimeRT += frameUs;  // FPS effectif
-    // frameCount++;
+    // Stats
+    avgFrameTime += emuUs;      // perf brute
+    avgFrameTimeRT += frameUs;  // FPS effectif
+    frameCount++;
 
-    // if (millis() - lastFpsTime >= 1000) {
-    //   float avgRaw = avgFrameTime / frameCount;
-    //   float fpsRaw = 1000000.0f / avgRaw;
-    //   float speedPct = (fpsRaw / 60.0f) * 100.0f;
+    if (millis() - lastFpsTime >= 1000) {
+      float avgRaw = avgFrameTime / frameCount;
+      float fpsRaw = 1000000.0f / avgRaw;
+      float speedPct = (fpsRaw / 60.0f) * 100.0f;
 
-    //   float avgRT = avgFrameTimeRT / frameCount;
-    //   float fpsRT = 1000000.0f / avgRT;
+      float avgRT = avgFrameTimeRT / frameCount;
+      float fpsRT = 1000000.0f / avgRT;
 
-    //   EMU_LOG("[Perf] raw=%.1f us (%.1f fps, %.1f%%) | realtime=%.1f us (%.2f fps)\n",
-    //         avgRaw, fpsRaw, speedPct, avgRT, fpsRT);
+      EMU_LOG("[Perf] raw=%.1f us (%.1f fps, %.1f%%) | realtime=%.1f us (%.2f fps)\n",
+            avgRaw, fpsRaw, speedPct, avgRT, fpsRT);
 
-    //   avgFrameTime = 0;
-    //   avgFrameTimeRT = 0;
-    //   frameCount = 0;
-    //   lastFpsTime = millis();
-    // }
+      avgFrameTime = 0;
+      avgFrameTimeRT = 0;
+      frameCount = 0;
+      lastFpsTime = millis();
+    }
   }
 }

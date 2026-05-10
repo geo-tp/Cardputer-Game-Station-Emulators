@@ -3,7 +3,7 @@
  * When REMOVE_PRINTF is defined, printf becomes a no-op. */
 #include <stdio.h>
 
-#if defined(REMOVE_PRINTF) && !defined(__cplusplus)
+#if defined(REMOVE_PRINTF) && !defined(BENCHMARK_LOGS) && !defined(__cplusplus)
   #ifdef printf
     #undef printf
   #endif

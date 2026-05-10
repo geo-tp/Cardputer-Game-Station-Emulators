@@ -55,15 +55,15 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
     frameCount++;
 
     // Log framerate every 2 seconds
-    // uint32_t now = millis();
-    // if (now - lastLog >= 2000) {
-    //   EMU_LOG("[WS] %lu frames rendered (%.2f FPS)\n",
-    //          (unsigned long)frameCount,
-    //          (float)frameCount / ((now - lastLog) / 1000.0f));
-    //   frameCount = 0;
-    //   EMU_LOG("[WS] HEAP: %u bytes\n", esp_get_free_heap_size());
-    //   lastLog = now;
-    // }
+    uint32_t now = millis();
+    if (now - lastLog >= 2000) {
+      EMU_LOG("[WS] %lu frames rendered (%.2f FPS)\n",
+             (unsigned long)frameCount,
+             (float)frameCount / ((now - lastLog) / 1000.0f));
+      frameCount = 0;
+      EMU_LOG("[WS] HEAP: %u bytes\n", esp_get_free_heap_size());
+      lastLog = now;
+    }
 
     // Frame pacing (75Hz)
     next += frame_us;
