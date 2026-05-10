@@ -6,6 +6,9 @@ extern "C" {
 
 #include <M5Cardputer.h>
 #include "esp_timer.h"
+#ifdef BENCHMARK_LOGS
+#include "esp_heap_caps.h"
+#endif
 #include "ws_display.h"
 #include "ws_sound.h"
 #include "ws_save.h"
@@ -47,10 +50,26 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
   EMU_LOG("[WS] Frame pacing: %uus/frame\n", frame_us);
   uint32_t frameCount = 0;
   uint32_t lastLog = millis();
+#ifdef BENCHMARK_LOGS
+  uint64_t benchCoreTotalUs = 0;
+  uint32_t benchCoreMaxUs = 0;
+  uint32_t benchLateFrames = 0;
+  uint32_t benchMaxLateUs = 0;
+  uint64_t benchIdleDelayUs = 0;
+  uint64_t benchIdleSpinUs = 0;
+#endif
 
   for (;;) {
     // Run one frame
+#ifdef BENCHMARK_LOGS
+    int64_t tRun0 = esp_timer_get_time();
+#endif
     WsRun();
+#ifdef BENCHMARK_LOGS
+    uint32_t coreUs = (uint32_t)(esp_timer_get_time() - tRun0);
+    benchCoreTotalUs += coreUs;
+    if (coreUs > benchCoreMaxUs) benchCoreMaxUs = coreUs;
+#endif
     ws_save_tick();
     frameCount++;
 
@@ -60,14 +79,67 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
       EMU_LOG("[WS] %lu frames rendered (%.2f FPS)\n",
              (unsigned long)frameCount,
              (float)frameCount / ((now - lastLog) / 1000.0f));
-      frameCount = 0;
+#ifdef BENCHMARK_LOGS
+      WsCoreStats coreStats;
+      WsGetAndResetStats(&coreStats);
+
+      uint32_t dispFrames = 0, dispTotalUs = 0, dispMaxUs = 0, dispPending = 0;
+      ws_display_get_and_reset_stats(&dispFrames, &dispTotalUs, &dispMaxUs, &dispPending);
+
+      uint32_t audioBlocks = 0, audioUnderflows = 0, audioMaxAvailable = 0, audioMaxQueue = 0;
+      ws_sound_get_and_reset_stats(&audioBlocks, &audioUnderflows, &audioMaxAvailable, &audioMaxQueue);
+
+      const float coreAvgMs = frameCount ? (float)benchCoreTotalUs / (float)frameCount / 1000.0f : 0.0f;
+      const float dispAvgMs = dispFrames ? (float)dispTotalUs / (float)dispFrames / 1000.0f : 0.0f;
+      EMU_LOG("[WS][BENCH] core avg/max %.2f/%.2f ms, late %lu maxLate %.2f ms, idle delay/spin %.1f/%.1f ms\n",
+              coreAvgMs, (float)benchCoreMaxUs / 1000.0f,
+              (unsigned long)benchLateFrames, (float)benchMaxLateUs / 1000.0f,
+              (double)benchIdleDelayUs / 1000.0, (double)benchIdleSpinUs / 1000.0);
+      EMU_LOG("[WS][BENCH] core frames=%u steps=%u lines=%u paints=%u fs=%d apu=%u gdma=%u/%uB\n",
+              coreStats.frames, coreStats.cpuSteps, coreStats.refreshLines,
+              coreStats.paintRequests, coreStats.frameSkip, coreStats.apuTicks,
+              coreStats.gdmaTransfers, coreStats.gdmaBytes);
+      EMU_LOG("[WS][BENCH] irq key=%u htm=%u vtm=%u vblank=%u line=%u\n",
+              coreStats.keyIrqs, coreStats.htimerIrqs, coreStats.vtimerIrqs,
+              coreStats.vblankIrqs, coreStats.lineIrqs);
+      EMU_LOG("[WS][BENCH] display frames=%lu avg/max %.2f/%.2f ms pending=%lu\n",
+              (unsigned long)dispFrames, dispAvgMs, (float)dispMaxUs / 1000.0f,
+              (unsigned long)dispPending);
+      EMU_LOG("[WS][BENCH] audio blocks=%lu underflows=%lu maxAvail=%lu maxQueue=%lu\n",
+              (unsigned long)audioBlocks, (unsigned long)audioUnderflows,
+              (unsigned long)audioMaxAvailable, (unsigned long)audioMaxQueue);
+      EMU_LOG("[WS][BENCH] heap free=%u largest8=%u largestInternal=%u minFree=%u\n",
+              esp_get_free_heap_size(),
+              heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+              heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+              heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
+      benchCoreTotalUs = 0;
+      benchCoreMaxUs = 0;
+      benchLateFrames = 0;
+      benchMaxLateUs = 0;
+      benchIdleDelayUs = 0;
+      benchIdleSpinUs = 0;
+#else
       EMU_LOG("[WS] HEAP: %u bytes\n", esp_get_free_heap_size());
+#endif
+      frameCount = 0;
       lastLog = now;
     }
 
     // Frame pacing (75Hz)
     next += frame_us;
     int64_t remain = (int64_t)next - (int64_t)esp_timer_get_time();
+#ifdef BENCHMARK_LOGS
+    if (remain < 0) {
+      uint32_t lateUs = (uint32_t)(-remain);
+      benchLateFrames++;
+      if (lateUs > benchMaxLateUs) benchMaxLateUs = lateUs;
+    } else if (remain > 2000) {
+      benchIdleDelayUs += (uint32_t)remain;
+    } else {
+      benchIdleSpinUs += (uint32_t)remain;
+    }
+#endif
     if (remain > 2000) vTaskDelay(remain / 1000 / portTICK_PERIOD_MS);
     else if (remain > 0) ets_delay_us((uint32_t)remain);
     else next = esp_timer_get_time();

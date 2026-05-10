@@ -31,10 +31,31 @@ extern struct EEPROM sCEep;
 #define CK_EEP 1
 extern int CartKind;
 
+#ifdef BENCHMARK_LOGS
+typedef struct WsCoreStats {
+    unsigned int frames;
+    unsigned int cpuSteps;
+    unsigned int refreshLines;
+    unsigned int paintRequests;
+    unsigned int apuTicks;
+    unsigned int gdmaTransfers;
+    unsigned int gdmaBytes;
+    unsigned int keyIrqs;
+    unsigned int htimerIrqs;
+    unsigned int vtimerIrqs;
+    unsigned int vblankIrqs;
+    unsigned int lineIrqs;
+    int frameSkip;
+} WsCoreStats;
+#endif
+
 void WriteIO(DWORD A, BYTE V);
 void WsReset (void);
 void WsRomPatch(BYTE *buf);
 int WsRun(void);
+#ifdef BENCHMARK_LOGS
+void WsGetAndResetStats(WsCoreStats* out);
+#endif
 void WsSplash(void);
 void WsCpyPdata(BYTE* dst);
 void Sleep(int);

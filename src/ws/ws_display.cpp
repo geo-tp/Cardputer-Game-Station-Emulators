@@ -7,6 +7,9 @@ extern "C" {
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
+#ifdef BENCHMARK_LOGS
+#include "esp_timer.h"
+#endif
 #include <algorithm>
 #include <esp_attr.h>
 #include "share/emu_log_cpp.h"
@@ -41,6 +44,12 @@ static uint8_t*  s_xmap   = nullptr;  // map X (dstW -> srcX)
 static uint8_t*  s_ymap   = nullptr;  // map Y (dstH -> srcY)
 static int s_dstW = kDstW, s_dstH = kDstH;
 static int s_offX = 0,     s_offY = 0;
+#ifdef BENCHMARK_LOGS
+static volatile uint32_t s_statFrames = 0;
+static volatile uint32_t s_statTotalUs = 0;
+static volatile uint32_t s_statMaxUs = 0;
+static volatile uint32_t s_statPendingNotifications = 0;
+#endif
 
 // -----------------------------------------------------------------------------
 // Utils
@@ -168,13 +177,42 @@ static void ws_display_task(void* arg)
 
   for (;;) {
     // Wait for notification
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    uint32_t pending = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+#ifdef BENCHMARK_LOGS
+    if (pending > 1) s_statPendingNotifications += pending - 1;
+    int64_t t0 = esp_timer_get_time();
+#else
+    (void)pending;
+#endif
     ws_render_one_frame();
+#ifdef BENCHMARK_LOGS
+    uint32_t us = (uint32_t)(esp_timer_get_time() - t0);
+    s_statFrames++;
+    s_statTotalUs += us;
+    if (us > s_statMaxUs) s_statMaxUs = us;
+#endif
 
     // Small pause
     if ((xTaskGetTickCount() & 7) == 0) taskYIELD();
   }
 }
+
+#ifdef BENCHMARK_LOGS
+extern "C" void ws_display_get_and_reset_stats(uint32_t* frames,
+                                                uint32_t* total_us,
+                                                uint32_t* max_us,
+                                                uint32_t* pending_notifications)
+{
+  if (frames) *frames = s_statFrames;
+  if (total_us) *total_us = s_statTotalUs;
+  if (max_us) *max_us = s_statMaxUs;
+  if (pending_notifications) *pending_notifications = s_statPendingNotifications;
+  s_statFrames = 0;
+  s_statTotalUs = 0;
+  s_statMaxUs = 0;
+  s_statPendingNotifications = 0;
+}
+#endif
 
 // -----------------------------------------------------------------------------
 // API

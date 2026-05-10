@@ -53,6 +53,14 @@ static int TblSkip[5][5] = {
     {0,0,1,0,1},
     {0,0,0,0,1},
 };
+#ifdef BENCHMARK_LOGS
+static WsCoreStats s_coreStats;
+#define WS_BENCH_INC(field)       (s_coreStats.field++)
+#define WS_BENCH_ADD(field, val)  (s_coreStats.field += (unsigned int)(val))
+#else
+#define WS_BENCH_INC(field)       ((void)0)
+#define WS_BENCH_ADD(field, val)  ((void)0)
+#endif
 #define MONO(C) (C)<<12 | (C)<<7 | (C)<<1
 static WORD DefColor[] = {
     MONO(0xF), MONO(0xE), MONO(0xD), MONO(0xC), MONO(0xB), MONO(0xA), MONO(0x9), MONO(0x8),
@@ -435,6 +443,8 @@ void  WriteIO(DWORD A, BYTE V)
             i = DMASRC;
             j = DMADST;
             k = DMACNT;
+            WS_BENCH_INC(gdmaTransfers);
+            WS_BENCH_ADD(gdmaBytes, k);
             while(k--)
             {
                 WriteMem(j++, ReadMem(i++));
@@ -868,6 +878,7 @@ int Interrupt(void)
                     if(IRQENA & KEY_IFLAG)
                     {
                         IRQACK |= KEY_IFLAG;
+                        WS_BENCH_INC(keyIrqs);
                     }
                 }
                 Joyz = ButtonState;
@@ -881,6 +892,7 @@ int Interrupt(void)
         case 2:
             // Hblank����1�T���v���Z�b�g���邱�Ƃ�12KHz��wave�f�[�^���o����
 			apuWaveSet();
+            WS_BENCH_INC(apuTicks);
 			//NCSR = apuShiftReg();
             break;
         case 4:
@@ -909,10 +921,12 @@ int Interrupt(void)
                     if(RSTRL < 144)
                     {
                         RefreshLine(RSTRL);
+                        WS_BENCH_INC(refreshLines);
                     }
                     if(RSTRL == 144)
                     {
                         ws_graphics_paint();
+                        WS_BENCH_INC(paintRequests);
                     }
                 }
             }
@@ -930,6 +944,7 @@ int Interrupt(void)
                     if(IRQENA & HTM_IFLAG)
                     {
                         IRQACK |= HTM_IFLAG;
+                        WS_BENCH_INC(htimerIrqs);
                     }
                 }
             }
@@ -938,11 +953,13 @@ int Interrupt(void)
                 if(IRQENA & HTM_IFLAG)
                 {
                     IRQACK |= HTM_IFLAG;
+                    WS_BENCH_INC(htimerIrqs);
                 }
             }
             if((IRQENA & VBB_IFLAG) && (RSTRL == 144))
             {
                 IRQACK |= VBB_IFLAG;
+                WS_BENCH_INC(vblankIrqs);
             }
             if((TIMCTL & 0x04) && (RSTRL == 144) && VTimer)
             {
@@ -956,12 +973,14 @@ int Interrupt(void)
                     if(IRQENA & VTM_IFLAG)
                     {
                         IRQACK |= VTM_IFLAG;
+                        WS_BENCH_INC(vtimerIrqs);
                     }
                 }
             }
             if((IRQENA & RST_IFLAG) && (RSTRL == RSTRLC))
             {
                 IRQACK |= RST_IFLAG;
+                WS_BENCH_INC(lineIrqs);
             }
             break;
         case 7:
@@ -1002,8 +1021,22 @@ int WsRun(void)
             nec_int((inum + IRQBSE) << 2);
         }
     }
+    WS_BENCH_INC(frames);
+    WS_BENCH_ADD(cpuSteps, 159 * 8);
     return 0;
 }
+
+#ifdef BENCHMARK_LOGS
+void WsGetAndResetStats(WsCoreStats* out)
+{
+    if(out)
+    {
+        *out = s_coreStats;
+        out->frameSkip = FrameSkip;
+    }
+    memset(&s_coreStats, 0, sizeof(s_coreStats));
+}
+#endif
 
 #define POS_X (88)
 #define POS_Y (32)

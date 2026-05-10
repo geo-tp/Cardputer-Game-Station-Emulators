@@ -17,6 +17,17 @@ static int16_t* s_buf0 = NULL;
 static int16_t* s_buf1 = NULL;
 static int16_t* s_buf[2] = { NULL, NULL };
 static uint8_t  s_flip   = 0;
+#ifdef BENCHMARK_LOGS
+static volatile uint32_t s_statBlocks = 0;
+static volatile uint32_t s_statUnderflows = 0;
+static volatile uint32_t s_statMaxAvailable = 0;
+static volatile uint32_t s_statMaxQueueDepth = 0;
+#define WS_SOUND_BENCH_INC(field)       (field++)
+#define WS_SOUND_BENCH_MAX(field, val)  do { uint32_t _v = (uint32_t)(val); if (_v > field) field = _v; } while (0)
+#else
+#define WS_SOUND_BENCH_INC(field)       ((void)0)
+#define WS_SOUND_BENCH_MAX(field, val)  ((void)0)
+#endif
 
 // Task
 static TaskHandle_t s_taskAudio  = nullptr;
@@ -39,6 +50,9 @@ static bool buffers_ok() {
 static inline void build_block_from_apu(int16_t* dst) {
   int need = g_chunk;
   int have = apuBufLen();
+  WS_SOUND_BENCH_INC(s_statBlocks);
+  WS_SOUND_BENCH_MAX(s_statMaxAvailable, have);
+  if (have < need) WS_SOUND_BENCH_INC(s_statUnderflows);
 
   // Si pas assez
   int to_read = (have >= need) ? need : have;
@@ -112,6 +126,12 @@ extern "C" void ws_sound_init(int sample_rate_hz) {
 
   M5Cardputer.Speaker.setVolume(80);
   s_flip = 0;
+#ifdef BENCHMARK_LOGS
+  s_statBlocks = 0;
+  s_statUnderflows = 0;
+  s_statMaxAvailable = 0;
+  s_statMaxQueueDepth = 0;
+#endif
 }
 
 extern "C" void ws_sound_set_volume(uint8_t vol) {
@@ -125,6 +145,7 @@ extern "C" void ws_sound_shutdown(void) {
 
 extern "C" void ws_sound_frame(void) {
   size_t queued = M5Cardputer.Speaker.isPlaying(kChannel);
+  WS_SOUND_BENCH_MAX(s_statMaxQueueDepth, queued);
 
   if (queued == 0) {
     // Amorcer 2 blocs
@@ -172,3 +193,19 @@ extern "C" void ws_sound_stop_task(void) {
   s_runAudio = false;
   s_taskAudio = nullptr;
 }
+
+#ifdef BENCHMARK_LOGS
+extern "C" void ws_sound_get_and_reset_stats(uint32_t* blocks,
+                                              uint32_t* underflows,
+                                              uint32_t* max_available,
+                                              uint32_t* max_queue_depth) {
+  if (blocks) *blocks = s_statBlocks;
+  if (underflows) *underflows = s_statUnderflows;
+  if (max_available) *max_available = s_statMaxAvailable;
+  if (max_queue_depth) *max_queue_depth = s_statMaxQueueDepth;
+  s_statBlocks = 0;
+  s_statUnderflows = 0;
+  s_statMaxAvailable = 0;
+  s_statMaxQueueDepth = 0;
+}
+#endif
