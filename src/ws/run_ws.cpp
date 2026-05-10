@@ -14,6 +14,40 @@ extern "C" {
 #include "ws_save.h"
 #include "share/emu_log_cpp.h"
 
+static void ws_update_adaptive_frameskip(uint32_t core_us, uint32_t frame_us)
+{
+  static uint32_t samples = 0;
+  static uint64_t total_us = 0;
+  static uint32_t over_budget = 0;
+
+  samples++;
+  total_us += core_us;
+  if (core_us > frame_us) over_budget++;
+
+  if (samples < 30) return;
+
+  const uint32_t avg_us = (uint32_t)(total_us / samples);
+  const int oldSkip = FrameSkip;
+
+  if ((avg_us > (frame_us * 105u) / 100u || over_budget > samples / 3) && FrameSkip < 4) {
+    FrameSkip++;
+  } else if (avg_us < (frame_us * 70u) / 100u && over_budget == 0 && FrameSkip > 0) {
+    FrameSkip--;
+  }
+
+#ifdef BENCHMARK_LOGS
+  if (FrameSkip != oldSkip) {
+    EMU_LOG("[WS][BENCH] adaptive frameskip %d -> %d (avg %.2f ms, overBudget %lu/%lu)\n",
+            oldSkip, FrameSkip, (float)avg_us / 1000.0f,
+            (unsigned long)over_budget, (unsigned long)samples);
+  }
+#endif
+
+  samples = 0;
+  total_us = 0;
+  over_budget = 0;
+}
+
 extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, bool is_color)
 {
   EMU_LOG("[WS] ===== WonderSwan Start =====\n");
@@ -61,12 +95,11 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
 
   for (;;) {
     // Run one frame
-#ifdef BENCHMARK_LOGS
     int64_t tRun0 = esp_timer_get_time();
-#endif
     WsRun();
-#ifdef BENCHMARK_LOGS
     uint32_t coreUs = (uint32_t)(esp_timer_get_time() - tRun0);
+    ws_update_adaptive_frameskip(coreUs, frame_us);
+#ifdef BENCHMARK_LOGS
     benchCoreTotalUs += coreUs;
     if (coreUs > benchCoreMaxUs) benchCoreMaxUs = coreUs;
 #endif

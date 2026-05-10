@@ -30,6 +30,7 @@ extern struct EEPROM sCEep;
 
 #define CK_EEP 1
 extern int CartKind;
+extern int FrameSkip;
 
 #ifdef BENCHMARK_LOGS
 typedef struct WsCoreStats {

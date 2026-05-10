@@ -44,7 +44,7 @@ static WORD HTimer;
 static WORD VTimer;
 static int RtcCount;
 static int RAMEnable;
-int FrameSkip = 4;
+int FrameSkip = 1;
 static int SkipCnt = 0;
 static int TblSkip[5][5] = {
     {1,1,1,1,1},
@@ -542,17 +542,15 @@ void  WriteIO(DWORD A, BYTE V)
     case 0xA4:
     case 0xA5:
         IO[A] = V;
-        HTimer = *(WORD*)(IO + HPRE); // FF
+        IO[A + 4] = V;
+        HTimer = HPRE;
         return;
     case 0xA6:
     case 0xA7:
         IO[A] = V;
-        IO[A + 4] = V; // Dark eyes
-        if(TIMCTL & 0x04)
-        {
-            VTimer = VPRE;
-        }
-        break;
+        IO[A + 4] = V;
+        VTimer = VPRE;
+        return;
     case 0xB3:
         if(V & 0x20)
         {
@@ -916,7 +914,10 @@ int Interrupt(void)
                         SkipCnt = 4;
                     }
                 }
-				if(TblSkip[FrameSkip][SkipCnt])
+                int frameSkip = FrameSkip;
+                if(frameSkip < 0) frameSkip = 0;
+                if(frameSkip > 4) frameSkip = 4;
+				if(TblSkip[frameSkip][SkipCnt])
                 {
                     if(RSTRL < 144)
                     {
