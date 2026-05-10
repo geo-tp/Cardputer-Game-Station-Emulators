@@ -37,8 +37,8 @@ int       ws_zoomPercent    = 100;    // ROI zoom
 static int lastZoomPercent = -1;
 
 static uint16_t* s_line16 = nullptr;  // ligne dest
-static uint16_t* s_xmap   = nullptr;  // map X (dstW -> srcX)
-static uint16_t* s_ymap   = nullptr;  // map Y (dstH -> srcY)
+static uint8_t*  s_xmap   = nullptr;  // map X (dstW -> srcX)
+static uint8_t*  s_ymap   = nullptr;  // map Y (dstH -> srcY)
 static int s_dstW = kDstW, s_dstH = kDstH;
 static int s_offX = 0,     s_offY = 0;
 
@@ -57,12 +57,12 @@ static void ws_display_alloc_buffers() {
                                             MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
   }
   if (!s_xmap) {
-    s_xmap = (uint16_t*) heap_caps_malloc(kDstW * sizeof(uint16_t),
-                                          MALLOC_CAP_8BIT);
+    s_xmap = (uint8_t*) heap_caps_malloc(kDstW * sizeof(uint8_t),
+                                         MALLOC_CAP_8BIT);
   }
   if (!s_ymap) {
-    s_ymap = (uint16_t*) heap_caps_malloc(kDstH * sizeof(uint16_t),
-                                          MALLOC_CAP_8BIT);
+    s_ymap = (uint8_t*) heap_caps_malloc(kDstH * sizeof(uint8_t),
+                                         MALLOC_CAP_8BIT);
   }
 }
 
@@ -95,10 +95,10 @@ static void ws_display_compute_scaler() {
 
   // LUT X/Y
   for (int dx = 0; dx < s_dstW; ++dx) {
-    s_xmap[dx] = (uint16_t)(roiX0 + ((int64_t)dx * roiW / s_dstW));
+    s_xmap[dx] = (uint8_t)(roiX0 + ((int64_t)dx * roiW / s_dstW));
   }
   for (int dy = 0; dy < s_dstH; ++dy) {
-    s_ymap[dy] = (uint16_t)(roiY0 + ((int64_t)dy * roiH / s_dstH));
+    s_ymap[dy] = (uint8_t)(roiY0 + ((int64_t)dy * roiH / s_dstH));
   }
 }
 
