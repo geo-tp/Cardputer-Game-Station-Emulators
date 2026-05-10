@@ -91,10 +91,10 @@ void RefreshLine(int Line)
 {
     WORD *pSBuf;            // �f�[�^�������݃o�b�t�@
     WORD *pSWrBuf;          // ���̏������݈ʒu�p�|�C���^
-    int *pZ;                // ���̃C���N�������g�p�|�C���^
-    int ZBuf[0x100];        // FG���C���[�̔񓧖�����ۑ�
-    int *pW;                // ���̃C���N�������g�p�|�C���^
-    int WBuf[0x100];        // FG���C���[�̃E�B���h�[��ۑ�
+    BYTE *pZ;               // priority mask, values 0/1
+    BYTE ZBuf[0x100];
+    BYTE *pW;               // window mask, values 0/1
+    BYTE WBuf[0x100];
     int OffsetX;            // 
     int OffsetY;            // 
     BYTE *pbTMap;           // 
@@ -103,7 +103,8 @@ void RefreshLine(int Line)
     int TMapXEnd;           // 
     BYTE *pbTData;          // 
     int PalIndex;               // 
-    unsigned int i, j, k, index[8];
+    unsigned int i, j, k;
+    BYTE index[8];
     WORD BaseCol;           // 
     pSBuf = FrameBuffer + Line * SCREEN_WIDTH;
     pSWrBuf = pSBuf;
@@ -336,38 +337,33 @@ void RefreshLine(int Line)
     {
         if((DSPCTL & 0x30) == 0x20) // �E�B���h�E�����݂̂ɕ\��
         {
-            for(i = 0, pW = WBuf + 8; i < LCD_MAIN_W; i++)
-            {
-                *pW++ = 1;
-            }
+            memset(WBuf + 8, 1, LCD_MAIN_W);
             if((Line >= SCR2WT) && (Line <= SCR2WB))
             {
-                for(i = SCR2WL, pW = WBuf + 8 + i; (i <= SCR2WR) && (i < LCD_MAIN_W); i++)
+                if((SCR2WL < LCD_MAIN_W) && (SCR2WL <= SCR2WR))
                 {
-                    *pW++ = 0;
+                    int width = SCR2WR - SCR2WL + 1;
+                    if(SCR2WL + width > LCD_MAIN_W) width = LCD_MAIN_W - SCR2WL;
+                    memset(WBuf + 8 + SCR2WL, 0, width);
                 }
             }
         }
         else if((DSPCTL & 0x30) == 0x30) // �E�B���h�E�O���݂̂ɕ\��
         {
-            for(i = 0, pW = WBuf + 8; i < LCD_MAIN_W; i++)
-            {
-                *pW++ = 0;
-            }
+            memset(WBuf + 8, 0, LCD_MAIN_W);
             if((Line >= SCR2WT) && (Line <= SCR2WB))
             {
-                for(i = SCR2WL, pW = WBuf + 8 + i; (i <= SCR2WR) && (i < LCD_MAIN_W); i++)
+                if((SCR2WL < LCD_MAIN_W) && (SCR2WL <= SCR2WR))
                 {
-                    *pW++ = 1;
+                    int width = SCR2WR - SCR2WL + 1;
+                    if(SCR2WL + width > LCD_MAIN_W) width = LCD_MAIN_W - SCR2WL;
+                    memset(WBuf + 8 + SCR2WL, 1, width);
                 }
             }
         }
         else
         {
-            for(i = 0, pW = WBuf + 8; i < LCD_MAIN_W; i++)
-            {
-                *pW++ = 0;
-            }
+            memset(WBuf + 8, 0, LCD_MAIN_W);
         }
 
         OffsetX = SCR2X & 0x07;
@@ -591,15 +587,14 @@ void RefreshLine(int Line)
     {
         if (DSPCTL & 0x08)      //sprite window
         {
-            for (i = 0, pW = WBuf + 8; i < LCD_MAIN_W; i++)
-            {
-                *pW++ = 1;
-            }
+            memset(WBuf + 8, 1, LCD_MAIN_W);
             if ((Line >= SPRWT) && (Line <= SPRWB))
             {
-                for (i = SPRWL, pW = WBuf + 8 + i; (i <= SPRWR) && (i < LCD_MAIN_W); i++)
+                if((SPRWL < LCD_MAIN_W) && (SPRWL <= SPRWR))
                 {
-                    *pW++ = 0;
+                    int width = SPRWR - SPRWL + 1;
+                    if(SPRWL + width > LCD_MAIN_W) width = LCD_MAIN_W - SPRWL;
+                    memset(WBuf + 8 + SPRWL, 0, width);
                 }
             }
         }
