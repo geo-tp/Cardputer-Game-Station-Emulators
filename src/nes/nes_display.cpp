@@ -73,8 +73,12 @@ void display_write_frame_square(const uint8_t *data[]) {
         for (int32_t x = 0; x < x_start; ++x) {
             s_nesLineBuf[x] = TFT_BLACK;
         }
+
+        int virtX_accum = 0;
+        int virtX_step = (virtW << 16) / outW;
         for (int32_t x = x_start; x < x_end; ++x) {
-            int virtX = ((x - x_start) * virtW) / outW;
+            int virtX = virtX_accum >> 16;
+            virtX_accum += virtX_step;
             int srcX  = virtX - virtOff;
             s_nesLineBuf[x] = (unsigned)srcX < (unsigned)srcW
                 ? myPalette[data[srcY][srcX]]
@@ -114,8 +118,11 @@ void display_write_frame_zoom(const uint8_t *data[]) {
         // bord gauche
         s_nesLineBuf[0] = s_nesLineBuf[1] = s_nesLineBuf[2] = s_nesLineBuf[3] = BLACK;
 
+        int srcX_accum = 0;
+        int srcX_step = (roiW << 16) / (frame_width - 5);
         for (int32_t x = 4; x < frame_width - 1; x++) {
-            int srcX = roiX0 + (int)((int32_t)(x - 4) * roiW / (frame_width - 5));
+            int srcX = roiX0 + (srcX_accum >> 16);
+            srcX_accum += srcX_step;
             srcX = clampi(srcX, 0, srcW - 1);
             s_nesLineBuf[x] = myPalette[data[srcY][srcX]];
         }
@@ -148,8 +155,11 @@ void display_write_frame(const uint8_t *data[]) {
 
         s_nesLineBuf[0] = s_nesLineBuf[1] = s_nesLineBuf[2] = s_nesLineBuf[3] = BLACK;
 
+        int srcX_accum = (4 * NES_SCREEN_WIDTH << 16) / frame_width;
+        int srcX_step = (NES_SCREEN_WIDTH << 16) / frame_width;
         for (int32_t x = 4; x < frame_width - 1; x++) {
-            int srcX = (x * NES_SCREEN_WIDTH) / frame_width - 4;
+            int srcX = (srcX_accum >> 16) - 4;
+            srcX_accum += srcX_step;
             s_nesLineBuf[x] = myPalette[data[srcY][srcX]];
         }
 
