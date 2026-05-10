@@ -23,6 +23,10 @@ static QueueHandle_t s_frameQ  = nullptr;
 static TaskHandle_t  s_task    = nullptr;
 static uint16_t     *s_lineBuf = nullptr;
 static int           s_lineCap = 0;
+static uint16_t     *s_xmap    = nullptr;
+static uint16_t     *s_ymap    = nullptr;
+static int           s_xmapCap = 0;
+static int           s_ymapCap = 0;
 
 struct LynxDisplayTransform {
   int   dstW;
@@ -65,7 +69,8 @@ static void lynx_display_compute_transform(int srcW, int srcH)
       srcW   == s_lastSrcW        &&
       srcH   == s_lastSrcH        &&
       lcdW   == s_lastLcdW        &&
-      lcdH   == s_lastLcdH) {
+      lcdH   == s_lastLcdH        &&
+      s_xmap && s_ymap) {
     return;
   }
 
@@ -131,6 +136,30 @@ static void lynx_display_compute_transform(int srcW, int srcH)
   s_transform.srcCY = (float)srcH * 0.5f;
   s_transform.dstCX = (float)(dstW - 1) * 0.5f;
   s_transform.dstCY = (float)(dstH - 1) * 0.5f;
+
+  if (dstW > s_xmapCap) {
+    if (s_xmap) free(s_xmap);
+    s_xmap = (uint16_t*)malloc(dstW * sizeof(uint16_t));
+    s_xmapCap = s_xmap ? dstW : 0;
+  }
+  if (dstH > s_ymapCap) {
+    if (s_ymap) free(s_ymap);
+    s_ymap = (uint16_t*)malloc(dstH * sizeof(uint16_t));
+    s_ymapCap = s_ymap ? dstH : 0;
+  }
+
+  if (!s_xmap || !s_ymap) {
+    return;
+  }
+
+  for (int x = 0; x < dstW; ++x) {
+    int srcX = (int)(s_transform.srcCX + ((float)x - s_transform.dstCX) * s_transform.invScaleX);
+    s_xmap[x] = (srcX < 0) ? 0 : ((srcX >= srcW) ? srcW - 1 : srcX);
+  }
+  for (int y = 0; y < dstH; ++y) {
+    int srcY = (int)(s_transform.srcCY + ((float)y - s_transform.dstCY) * s_transform.invScaleY);
+    s_ymap[y] = (srcY < 0) ? 0 : ((srcY >= srcH) ? srcH - 1 : srcY);
+  }
 }
 
 
@@ -161,14 +190,8 @@ static void lynx_display_task(void *arg)
     int   dstH      = s_transform.dstH;
     int   xOffset   = s_transform.xOffset;
     int   yOffset   = s_transform.yOffset;
-    float invScaleX = s_transform.invScaleX;
-    float invScaleY = s_transform.invScaleY;
-    float srcCX     = s_transform.srcCX;
-    float srcCY     = s_transform.srcCY;
-    float dstCX     = s_transform.dstCX;
-    float dstCY     = s_transform.dstCY;
 
-    if (dstW <= 0 || dstH <= 0) {
+    if (dstW <= 0 || dstH <= 0 || !s_xmap || !s_ymap) {
       continue;
     }
 
@@ -188,20 +211,11 @@ static void lynx_display_task(void *arg)
     }
 
     for (int y = 0; y < dstH; ++y) {
-      float srcYf = srcCY + ( (float)y - dstCY ) * invScaleY;
-      int   srcY  = (int)srcYf;
-      if (srcY < 0)     srcY = 0;
-      if (srcY >= srcH) srcY = srcH - 1;
-
+      int srcY = s_ymap[y];
       const uint16_t* srcLine = msg.fb + srcY * srcW;
 
       for (int x = 0; x < dstW; ++x) {
-        float srcXf = srcCX + ( (float)x - dstCX ) * invScaleX;
-        int   srcX  = (int)srcXf;
-        if (srcX < 0)     srcX = 0;
-        if (srcX >= srcW) srcX = srcW - 1;
-
-        s_lineBuf[x] = srcLine[srcX];
+        s_lineBuf[x] = srcLine[s_xmap[x]];
       }
 
       int dstY = yOffset + y;
@@ -271,6 +285,23 @@ extern "C" void lynx_display_stop(void)
     s_lineBuf = nullptr;
     s_lineCap = 0;
   }
+  if (s_xmap) {
+    free(s_xmap);
+    s_xmap = nullptr;
+    s_xmapCap = 0;
+  }
+  if (s_ymap) {
+    free(s_ymap);
+    s_ymap = nullptr;
+    s_ymapCap = 0;
+  }
+
+  s_lastSrcW = 0;
+  s_lastSrcH = 0;
+  s_lastLcdW = 0;
+  s_lastLcdH = 0;
+  s_lastZoomPercent = -1;
+  s_lastFullScreen = false;
 }
 
 extern "C" void lynx_display_submit_frame(const uint16_t *fb,
