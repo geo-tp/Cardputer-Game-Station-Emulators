@@ -764,6 +764,194 @@ OP( 0xf0, i_lock     ) {  no_interrupt=1; CLK(1); }
             I.ip-=(UINT16)2;    \
         break;}
 
+static NEC_CORE_CODE void nec_rewind_rep_ip(void)
+{
+    if(seg_prefix)
+        I.ip-=(UINT16)3;
+    else
+        I.ip-=(UINT16)2;
+}
+
+static NEC_CORE_CODE UINT16 nec_rep_fast_count(UINT16 c, UINT32 per_cycle, int throttle)
+{
+    if(!throttle)
+        return c;
+    if(nec_ICount < 0)
+        return 0;
+
+    UINT32 n = ((UINT32)nec_ICount / per_cycle) + 1;
+    if(n > c)
+        n = c;
+    return (UINT16)n;
+}
+
+static NEC_CORE_CODE int nec_fast_rep_movsb(UINT16 c, UINT32 per_cycle, int throttle)
+{
+    if(throttle && nec_ICount < 0)
+    {
+        I.regs.w[CW] = c;
+        nec_rewind_rep_ip();
+        return 1;
+    }
+    if(I.DF)
+        return 0;
+
+    const UINT16 n = nec_rep_fast_count(c, per_cycle, throttle);
+    if(n == 0)
+        return 0;
+
+    const BYTE* src;
+    BYTE* dst;
+    const UINT32 src_off = I.regs.w[IX];
+    const UINT32 dst_off = I.regs.w[IY];
+    if(src_off + n > 0x10000u || dst_off + n > 0x10000u)
+        return 0;
+    if(!NecCanDirectReadRange(DefaultBase(DS) + src_off, n, &src) ||
+       !NecCanDirectWriteRange(seg_base[ES] + dst_off, n, &dst))
+    {
+        return 0;
+    }
+
+    const volatile BYTE* s = src;
+    volatile BYTE* d = dst;
+    for(UINT32 i = 0; i < n; ++i)
+        d[i] = s[i];
+
+    I.regs.w[IX] = (UINT16)(src_off + n);
+    I.regs.w[IY] = (UINT16)(dst_off + n);
+    c -= n;
+    I.regs.w[CW] = c;
+    nec_ICount -= (int)(n * per_cycle);
+    if(throttle && c && nec_ICount < 0)
+        nec_rewind_rep_ip();
+    return 1;
+}
+
+static NEC_CORE_CODE int nec_fast_rep_movsw(UINT16 c, UINT32 per_cycle, int throttle)
+{
+    if(throttle && nec_ICount < 0)
+    {
+        I.regs.w[CW] = c;
+        nec_rewind_rep_ip();
+        return 1;
+    }
+    if(I.DF)
+        return 0;
+
+    const UINT16 n = nec_rep_fast_count(c, per_cycle, throttle);
+    if(n == 0)
+        return 0;
+
+    const UINT32 bytes = (UINT32)n << 1;
+    const BYTE* src;
+    BYTE* dst;
+    const UINT32 src_off = I.regs.w[IX];
+    const UINT32 dst_off = I.regs.w[IY];
+    if(src_off + bytes > 0x10000u || dst_off + bytes > 0x10000u)
+        return 0;
+    if(!NecCanDirectReadRange(DefaultBase(DS) + src_off, bytes, &src) ||
+       !NecCanDirectWriteRange(seg_base[ES] + dst_off, bytes, &dst))
+    {
+        return 0;
+    }
+
+    const volatile BYTE* s = src;
+    volatile BYTE* d = dst;
+    for(UINT32 i = 0; i < bytes; i += 2)
+    {
+        const BYTE lo = s[i];
+        const BYTE hi = s[i + 1];
+        d[i] = lo;
+        d[i + 1] = hi;
+    }
+
+    I.regs.w[IX] = (UINT16)(src_off + bytes);
+    I.regs.w[IY] = (UINT16)(dst_off + bytes);
+    c -= n;
+    I.regs.w[CW] = c;
+    nec_ICount -= (int)(n * per_cycle);
+    if(throttle && c && nec_ICount < 0)
+        nec_rewind_rep_ip();
+    return 1;
+}
+
+static NEC_CORE_CODE int nec_fast_rep_stosb(UINT16 c, UINT32 per_cycle, int throttle)
+{
+    if(throttle && nec_ICount < 0)
+    {
+        I.regs.w[CW] = c;
+        nec_rewind_rep_ip();
+        return 1;
+    }
+    if(I.DF)
+        return 0;
+
+    const UINT16 n = nec_rep_fast_count(c, per_cycle, throttle);
+    if(n == 0)
+        return 0;
+
+    BYTE* dst;
+    const UINT32 dst_off = I.regs.w[IY];
+    if(dst_off + n > 0x10000u)
+        return 0;
+    if(!NecCanDirectWriteRange(seg_base[ES] + dst_off, n, &dst))
+        return 0;
+
+    volatile BYTE* d = dst;
+    const BYTE value = I.regs.b[AL];
+    for(UINT32 i = 0; i < n; ++i)
+        d[i] = value;
+
+    I.regs.w[IY] = (UINT16)(dst_off + n);
+    c -= n;
+    I.regs.w[CW] = c;
+    nec_ICount -= (int)(n * per_cycle);
+    if(throttle && c && nec_ICount < 0)
+        nec_rewind_rep_ip();
+    return 1;
+}
+
+static NEC_CORE_CODE int nec_fast_rep_stosw(UINT16 c, UINT32 per_cycle, int throttle)
+{
+    if(throttle && nec_ICount < 0)
+    {
+        I.regs.w[CW] = c;
+        nec_rewind_rep_ip();
+        return 1;
+    }
+    if(I.DF)
+        return 0;
+
+    const UINT16 n = nec_rep_fast_count(c, per_cycle, throttle);
+    if(n == 0)
+        return 0;
+
+    const UINT32 bytes = (UINT32)n << 1;
+    BYTE* dst;
+    const UINT32 dst_off = I.regs.w[IY];
+    if(dst_off + bytes > 0x10000u)
+        return 0;
+    if(!NecCanDirectWriteRange(seg_base[ES] + dst_off, bytes, &dst))
+        return 0;
+
+    volatile BYTE* d = dst;
+    const BYTE lo = I.regs.b[AL];
+    const BYTE hi = I.regs.b[AH];
+    for(UINT32 i = 0; i < bytes; i += 2)
+    {
+        d[i] = lo;
+        d[i + 1] = hi;
+    }
+
+    I.regs.w[IY] = (UINT16)(dst_off + bytes);
+    c -= n;
+    I.regs.w[CW] = c;
+    nec_ICount -= (int)(n * per_cycle);
+    if(throttle && c && nec_ICount < 0)
+        nec_rewind_rep_ip();
+    return 1;
+}
+
 OP( 0xf2, i_repne    ) { UINT32 next = FETCHOP; UINT16 c = I.regs.w[CW];
     switch(next) { /* Segments */
         case 0x26:  seg_prefix=TRUE;    prefix_base=seg_base[ES]; next = FETCHOP; CLK(2); break;
@@ -777,12 +965,12 @@ OP( 0xf2, i_repne    ) { UINT32 next = FETCHOP; UINT16 c = I.regs.w[CW];
         case 0x6d:  CLK(2); if (c) do { i_insw();  c--; } while (c>0);  I.regs.w[CW]=c; break;
         case 0x6e:  CLK(2); if (c) do { i_outsb(); c--; } while (c>0);  I.regs.w[CW]=c; break;
         case 0x6f:  CLK(2); if (c) do { i_outsw(); c--; } while (c>0);  I.regs.w[CW]=c; break;
-        case 0xa4:  CLK(2); if (c) do { i_movsb(); c--; } while (c>0);  I.regs.w[CW]=c; break;
-        case 0xa5:  CLK(2); if (c) do { i_movsw(); c--; } while (c>0);  I.regs.w[CW]=c; break;
+        case 0xa4:  CLK(2); if (c) { if(nec_fast_rep_movsb(c, 5, 0)) break; do { i_movsb(); c--; } while (c>0); } I.regs.w[CW]=c; break;
+        case 0xa5:  CLK(2); if (c) { if(nec_fast_rep_movsw(c, 5, 0)) break; do { i_movsw(); c--; } while (c>0); } I.regs.w[CW]=c; break;
         case 0xa6:  CLK(5); if (c) do { THROUGH; i_cmpsb(); c--; CLK(3); } while (c>0 && ZF==0);    I.regs.w[CW]=c; break;
         case 0xa7:  CLK(5); if (c) do { THROUGH; i_cmpsw(); c--; CLK(3); } while (c>0 && ZF==0);    I.regs.w[CW]=c; break;
-        case 0xaa:  CLK(2); if (c) do { i_stosb(); c--; } while (c>0);  I.regs.w[CW]=c; break;
-        case 0xab:  CLK(2); if (c) do { i_stosw(); c--; } while (c>0);  I.regs.w[CW]=c; break;
+        case 0xaa:  CLK(2); if (c) { if(nec_fast_rep_stosb(c, 3, 0)) break; do { i_stosb(); c--; } while (c>0); } I.regs.w[CW]=c; break;
+        case 0xab:  CLK(2); if (c) { if(nec_fast_rep_stosw(c, 3, 0)) break; do { i_stosw(); c--; } while (c>0); } I.regs.w[CW]=c; break;
         case 0xac:  CLK(2); if (c) do { i_lodsb(); c--; } while (c>0);  I.regs.w[CW]=c; break;
         case 0xad:  CLK(2); if (c) do { i_lodsw(); c--; } while (c>0);  I.regs.w[CW]=c; break;
         case 0xae:  CLK(5); if (c) do { THROUGH; i_scasb(); c--; CLK(5); } while (c>0 && ZF==0);    I.regs.w[CW]=c; break;
@@ -804,12 +992,12 @@ OP( 0xf3, i_repe     ) { UINT32 next = FETCHOP; UINT16 c = I.regs.w[CW];
         case 0x6d:  CLK(5); if (c) do { THROUGH; i_insw();  c--; CLK( 0); } while (c>0);    I.regs.w[CW]=c; break;
         case 0x6e:  CLK(5); if (c) do { THROUGH; i_outsb(); c--; CLK(-1); } while (c>0);    I.regs.w[CW]=c; break;
         case 0x6f:  CLK(5); if (c) do { THROUGH; i_outsw(); c--; CLK(-1); } while (c>0);    I.regs.w[CW]=c; break;
-        case 0xa4:  CLK(5); if (c) do { THROUGH; i_movsb(); c--; CLK( 2); } while (c>0);    I.regs.w[CW]=c; break;
-        case 0xa5:  CLK(5); if (c) do { THROUGH; i_movsw(); c--; CLK( 2); } while (c>0);    I.regs.w[CW]=c; break;
+        case 0xa4:  CLK(5); if (c) { if(nec_fast_rep_movsb(c, 7, 1)) break; do { THROUGH; i_movsb(); c--; CLK( 2); } while (c>0); }   I.regs.w[CW]=c; break;
+        case 0xa5:  CLK(5); if (c) { if(nec_fast_rep_movsw(c, 7, 1)) break; do { THROUGH; i_movsw(); c--; CLK( 2); } while (c>0); }   I.regs.w[CW]=c; break;
         case 0xa6:  CLK(5); if (c) do { THROUGH; i_cmpsb(); c--; CLK( 4); } while (c>0 && ZF==1);   I.regs.w[CW]=c; break;
         case 0xa7:  CLK(5); if (c) do { THROUGH; i_cmpsw(); c--; CLK( 4); } while (c>0 && ZF==1);   I.regs.w[CW]=c; break;
-        case 0xaa:  CLK(5); if (c) do { THROUGH; i_stosb(); c--; CLK( 3); } while (c>0);    I.regs.w[CW]=c; break;
-        case 0xab:  CLK(5); if (c) do { THROUGH; i_stosw(); c--; CLK( 3); } while (c>0);    I.regs.w[CW]=c; break;
+        case 0xaa:  CLK(5); if (c) { if(nec_fast_rep_stosb(c, 6, 1)) break; do { THROUGH; i_stosb(); c--; CLK( 3); } while (c>0); }   I.regs.w[CW]=c; break;
+        case 0xab:  CLK(5); if (c) { if(nec_fast_rep_stosw(c, 6, 1)) break; do { THROUGH; i_stosw(); c--; CLK( 3); } while (c>0); }   I.regs.w[CW]=c; break;
         case 0xac:  CLK(5); if (c) do { THROUGH; i_lodsb(); c--; CLK( 3); } while (c>0);    I.regs.w[CW]=c; break;
         case 0xad:  CLK(5); if (c) do { THROUGH; i_lodsw(); c--; CLK( 3); } while (c>0);    I.regs.w[CW]=c; break;
         case 0xae:  CLK(5); if (c) do { THROUGH; i_scasb(); c--; CLK( 4); } while (c>0 && ZF==1);   I.regs.w[CW]=c; break;

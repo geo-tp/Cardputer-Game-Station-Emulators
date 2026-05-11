@@ -132,6 +132,54 @@ NEC_ALWAYS_INLINE int NecIsSafeIramWrite(UINT32 off)
 	return ((off & 0xfe00) != 0xfe00) && (((off - wave) & 0xffc0) != 0);
 }
 
+NEC_ALWAYS_INLINE int NecRangeOverlaps(UINT32 start, UINT32 bytes, UINT32 blockStart, UINT32 blockBytes)
+{
+	const UINT32 end = start + bytes;
+	const UINT32 blockEnd = blockStart + blockBytes;
+	return start < blockEnd && end > blockStart;
+}
+
+NEC_ALWAYS_INLINE int NecIsSafeIramWriteRange(UINT32 off, UINT32 bytes)
+{
+	const UINT32 wave = (UINT32)WaveMap;
+	if(bytes == 0 || off + bytes > 0x10000u)
+	{
+		return 0;
+	}
+	if(NecRangeOverlaps(off, bytes, 0xfe00u, 0x0200u))
+	{
+		return 0;
+	}
+	if(wave < 0x10000u && NecRangeOverlaps(off, bytes, wave, 0x40u))
+	{
+		return 0;
+	}
+	return 1;
+}
+
+NEC_ALWAYS_INLINE int NecCanDirectReadRange(UINT32 A, UINT32 bytes, const BYTE** ptr)
+{
+	const UINT32 off = A & 0xffff;
+	const UINT32 page = (A >> 16) & 0x0f;
+	if(bytes == 0 || page == 1 || off + bytes > 0x10000u)
+	{
+		return 0;
+	}
+	*ptr = Page[page] + off;
+	return 1;
+}
+
+NEC_ALWAYS_INLINE int NecCanDirectWriteRange(UINT32 A, UINT32 bytes, BYTE** ptr)
+{
+	const UINT32 off = A & 0xffff;
+	if(((A >> 16) & 0x0f) != 0 || !NecIsSafeIramWriteRange(off, bytes))
+	{
+		return 0;
+	}
+	*ptr = Page[0] + off;
+	return 1;
+}
+
 NEC_ALWAYS_INLINE void NecFastWrite8(UINT32 A, UINT32 V)
 {
 	const UINT32 off = A & 0xffff;
