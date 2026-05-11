@@ -125,17 +125,50 @@ NEC_ALWAYS_INLINE void NecFastStackWrite16(UINT32 A, UINT32 V)
 	cpu_writemem20(A + 1, (BYTE)(V >> 8));
 }
 
+NEC_ALWAYS_INLINE int NecIsSafeIramWrite(UINT32 off)
+{
+	const UINT32 wave = (UINT32)WaveMap;
+	return ((off & 0xfe00) != 0xfe00) && (((off - wave) & 0xffc0) != 0);
+}
+
+NEC_ALWAYS_INLINE void NecFastWrite8(UINT32 A, UINT32 V)
+{
+	const UINT32 off = A & 0xffff;
+	if(((A >> 16) & 0x0f) == 0 && NecIsSafeIramWrite(off))
+	{
+		Page[0][off] = (BYTE)V;
+		return;
+	}
+	cpu_writemem20(A, (BYTE)V);
+}
+
+NEC_ALWAYS_INLINE void NecFastWrite16(UINT32 A, UINT32 V)
+{
+	const UINT32 off = A & 0xffff;
+	const UINT32 next = (off + 1) & 0xffff;
+	if(((A >> 16) & 0x0f) == 0 && off != 0xffff &&
+	   NecIsSafeIramWrite(off) && NecIsSafeIramWrite(next))
+	{
+		BYTE* p = Page[0] + off;
+		p[0] = (BYTE)V;
+		p[1] = (BYTE)(V >> 8);
+		return;
+	}
+	cpu_writemem20(A, (BYTE)V);
+	cpu_writemem20(A + 1, (BYTE)(V >> 8));
+}
+
 #define GetMemB(Seg,Off) (/*nec_ICount-=((Off)&1)?1:0,*/ (UINT8)NecFastRead8((DefaultBase(Seg)+(Off))))
 #define GetMemW(Seg,Off) (/*nec_ICount-=((Off)&1)?1:0,*/ (UINT16)NecFastRead16((DefaultBase(Seg)+(Off))) )
 
-#define PutMemB(Seg,Off,x) { /*nec_ICount-=((Off)&1)?1:0*/; cpu_writemem20((DefaultBase(Seg)+(Off)),(x)); }
-#define PutMemW(Seg,Off,x) { /*nec_ICount-=((Off)&1)?1:0*/; PutMemB(Seg,Off,(x)&0xff); PutMemB(Seg,(Off)+1,(BYTE)((x)>>8)); }
+#define PutMemB(Seg,Off,x) { /*nec_ICount-=((Off)&1)?1:0*/; NecFastWrite8((DefaultBase(Seg)+(Off)),(x)); }
+#define PutMemW(Seg,Off,x) { /*nec_ICount-=((Off)&1)?1:0*/; NecFastWrite16((DefaultBase(Seg)+(Off)),(x)); }
 
 /* Todo:  Remove these later - plus readword could overflow */
 #define ReadByte(ea) (/*nec_ICount-=((ea)&1)?1:0,*/ (BYTE)NecFastRead8((ea)))
 #define ReadWord(ea) (/*nec_ICount-=((ea)&1)?1:0,*/ NecFastRead16((ea)))
-#define WriteByte(ea,val) { /*nec_ICount-=((ea)&1)?1:0*/; cpu_writemem20((ea),val); }
-#define WriteWord(ea,val) { /*nec_ICount-=((ea)&1)?1:0*/; cpu_writemem20((ea),(BYTE)(val)); cpu_writemem20(((ea)+1),(val)>>8); }
+#define WriteByte(ea,val) { /*nec_ICount-=((ea)&1)?1:0*/; NecFastWrite8((ea),val); }
+#define WriteWord(ea,val) { /*nec_ICount-=((ea)&1)?1:0*/; NecFastWrite16((ea),val); }
 
 #define read_port(port) cpu_readport(port)
 #define write_port(port,val) cpu_writeport(port,val)
