@@ -75,30 +75,60 @@ typedef enum { AL,AH,CL,CH,DL,DH,BL,BH,SPL,SPH,BPL,BPH,IXL,IXH,IYL,IYH } BREGS;
 
 #define SET_CS(val) { I.sregs[CS] = (WORD)(val); cs_base = (UINT32)I.sregs[CS] << 4; }
 
-#define GetMemB(Seg,Off) (/*nec_ICount-=((Off)&1)?1:0,*/ (UINT8)cpu_readmem20((DefaultBase(Seg)+(Off))))
-#define GetMemW(Seg,Off) (/*nec_ICount-=((Off)&1)?1:0,*/ (UINT16) cpu_readmem20((DefaultBase(Seg)+(Off))) + (cpu_readmem20((DefaultBase(Seg)+((Off)+1)))<<8) )
+extern BYTE *Page[0x10];
+
+#if defined(__GNUC__)
+#define NEC_ALWAYS_INLINE static inline __attribute__((always_inline))
+#else
+#define NEC_ALWAYS_INLINE static inline
+#endif
+
+NEC_ALWAYS_INLINE BYTE NecFastRead8(UINT32 A)
+{
+	const UINT32 page = (A >> 16) & 0x0f;
+	if(page == 1)
+	{
+		return cpu_readmem20(A);
+	}
+	return Page[page][A & 0xffff];
+}
+
+NEC_ALWAYS_INLINE UINT32 NecFastRead16(UINT32 A)
+{
+	const UINT32 off = A & 0xffff;
+	const UINT32 page = (A >> 16) & 0x0f;
+	if(page != 1 && off != 0xffff)
+	{
+		const BYTE* p = Page[page] + off;
+		return (UINT32)p[0] | ((UINT32)p[1] << 8);
+	}
+	return (UINT32)cpu_readmem20(A) | ((UINT32)cpu_readmem20(A + 1) << 8);
+}
+
+#define GetMemB(Seg,Off) (/*nec_ICount-=((Off)&1)?1:0,*/ (UINT8)NecFastRead8((DefaultBase(Seg)+(Off))))
+#define GetMemW(Seg,Off) (/*nec_ICount-=((Off)&1)?1:0,*/ (UINT16)NecFastRead16((DefaultBase(Seg)+(Off))) )
 
 #define PutMemB(Seg,Off,x) { /*nec_ICount-=((Off)&1)?1:0*/; cpu_writemem20((DefaultBase(Seg)+(Off)),(x)); }
 #define PutMemW(Seg,Off,x) { /*nec_ICount-=((Off)&1)?1:0*/; PutMemB(Seg,Off,(x)&0xff); PutMemB(Seg,(Off)+1,(BYTE)((x)>>8)); }
 
 /* Todo:  Remove these later - plus readword could overflow */
-#define ReadByte(ea) (/*nec_ICount-=((ea)&1)?1:0,*/ (BYTE)cpu_readmem20((ea)))
-#define ReadWord(ea) (/*nec_ICount-=((ea)&1)?1:0,*/ cpu_readmem20((ea))+(cpu_readmem20(((ea)+1))<<8))
+#define ReadByte(ea) (/*nec_ICount-=((ea)&1)?1:0,*/ (BYTE)NecFastRead8((ea)))
+#define ReadWord(ea) (/*nec_ICount-=((ea)&1)?1:0,*/ NecFastRead16((ea)))
 #define WriteByte(ea,val) { /*nec_ICount-=((ea)&1)?1:0*/; cpu_writemem20((ea),val); }
 #define WriteWord(ea,val) { /*nec_ICount-=((ea)&1)?1:0*/; cpu_writemem20((ea),(BYTE)(val)); cpu_writemem20(((ea)+1),(val)>>8); }
 
 #define read_port(port) cpu_readport(port)
 #define write_port(port,val) cpu_writeport(port,val)
 
-#define FETCH (cpu_readop_arg(cs_base+I.ip++))
-#define FETCHOP (cpu_readop(cs_base+I.ip++))
-#define FETCHWORD(var) { UINT32 _fetch_addr = cs_base + I.ip; var=cpu_readop_arg(_fetch_addr)+(cpu_readop_arg(_fetch_addr+1)<<8); I.ip+=2; }
+#define FETCH (NecFastRead8(cs_base+I.ip++))
+#define FETCHOP (NecFastRead8(cs_base+I.ip++))
+#define FETCHWORD(var) { var=NecFastRead16(cs_base + I.ip); I.ip+=2; }
 #define PUSH(val) { I.regs.w[SP]-=2; WriteWord((((I.sregs[SS]<<4)+I.regs.w[SP])),val); }
 #define POP(var) { var = ReadWord((((I.sregs[SS]<<4)+I.regs.w[SP]))); I.regs.w[SP]+=2; }
-#define PEEK(addr) ((BYTE)cpu_readop_arg(addr))
-#define PEEKOP(addr) ((BYTE)cpu_readop(addr))
+#define PEEK(addr) ((BYTE)NecFastRead8(addr))
+#define PEEKOP(addr) ((BYTE)NecFastRead8(addr))
 
-#define GetModRM UINT32 ModRM=cpu_readop_arg(cs_base+I.ip++)
+#define GetModRM UINT32 ModRM=NecFastRead8(cs_base+I.ip++)
 
 /* Cycle count macros:
 	CLK  - cycle count is the same on all processors
