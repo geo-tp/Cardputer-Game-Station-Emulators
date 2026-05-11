@@ -41,6 +41,21 @@ typedef struct WsCoreStats {
     unsigned int apuTicks;
     unsigned int gdmaTransfers;
     unsigned int gdmaBytes;
+    unsigned int spriteLines;
+    unsigned int spriteCandidates;
+    unsigned int spriteVisible;
+    unsigned int spritePixels;
+    unsigned int spriteLimitedLines;
+    unsigned int spriteClipLeft;
+    unsigned int spriteClipRight;
+    unsigned int spriteWindowSkips;
+    unsigned int spritePrioritySkips;
+    unsigned int spriteTransparentSkips;
+    unsigned int spriteTableBase;
+    unsigned int spriteFirst;
+    unsigned int spriteCountReg;
+    unsigned int spriteCached;
+    unsigned int spriteWrapped;
     unsigned int keyIrqs;
     unsigned int htimerIrqs;
     unsigned int vtimerIrqs;
@@ -56,6 +71,11 @@ void WsRomPatch(BYTE *buf);
 int WsRun(void);
 #ifdef BENCHMARK_LOGS
 void WsGetAndResetStats(WsCoreStats* out);
+void WsBenchSpriteLine(unsigned int candidates, unsigned int visible,
+                       unsigned int pixels, unsigned int clipLeft,
+                       unsigned int clipRight, unsigned int windowSkips,
+                       unsigned int prioritySkips, unsigned int transparentSkips,
+                       unsigned int limited);
 #endif
 void WsSplash(void);
 void WsCpyPdata(BYTE* dst);

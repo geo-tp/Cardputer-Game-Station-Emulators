@@ -5,6 +5,12 @@ $Rev: 71 $
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#ifdef WS_CORE_IRAM
+#include <esp_attr.h>
+#define WS_CORE_CODE IRAM_ATTR
+#else
+#define WS_CORE_CODE
+#endif
 
 //#include "entry.h"
 #include "WSRender.h"
@@ -54,6 +60,7 @@ static int TblSkip[5][5] = {
     {0,0,1,0,1},
     {0,0,0,0,1},
 };
+static void WsRefreshSpriteTable(void);
 #ifdef BENCHMARK_LOGS
 static WsCoreStats s_coreStats;
 #define WS_BENCH_INC(field)       (s_coreStats.field++)
@@ -68,7 +75,7 @@ static WORD DefColor[] = {
     MONO(0x7), MONO(0x6), MONO(0x5), MONO(0x4), MONO(0x3), MONO(0x2), MONO(0x1), MONO(0x0)
 };
 
-static int WsGdmaSourceIsValid(DWORD source)
+static inline int WsGdmaSourceIsValid(DWORD source)
 {
     const int page = (int)((source >> 16) & 0x0F);
 
@@ -77,35 +84,106 @@ static int WsGdmaSourceIsValid(DWORD source)
     return 1;
 }
 
-static void WsRunGdma(void)
+static void WsSyncIramWriteSideEffects(WORD dst, WORD len)
+{
+    unsigned int end = (unsigned int)dst + len;
+
+    if(end > 0xFE00u)
+    {
+        unsigned int palFrom = dst > 0xFE00u ? dst : 0xFE00u;
+        unsigned int palTo = end > 0x10000u ? 0x10000u : end;
+        palFrom &= ~1u;
+        for(unsigned int a = palFrom; a < palTo; a += 2)
+        {
+            SetPalette((int)a);
+        }
+    }
+
+    if(WaveMap < 0x10000u)
+    {
+        unsigned int wavFrom = dst;
+        unsigned int wavTo = end;
+        const unsigned int wavEnd = WaveMap + 0x40u;
+
+        if(wavFrom < WaveMap) wavFrom = WaveMap;
+        if(wavTo > wavEnd) wavTo = wavEnd;
+        if(wavTo > wavFrom)
+        {
+            for(unsigned int a = wavFrom; a < wavTo; ++a)
+            {
+                apuSetPData((int)(a & 0x003F), IRAM[a & 0xFFFF]);
+            }
+        }
+    }
+}
+
+static WS_CORE_CODE void WsRunGdma(void)
 {
     DWORD source = DMASRC & 0x0FFFFE;
     WORD dest = DMADST & 0xFFFE;
     WORD length = DMACNT & 0xFFFE;
+    const WORD initialDest = dest;
     const int step = (IO[0x48] & 0x40) ? -2 : 2;
     WORD remaining = length;
 
-    if (!remaining || !WsGdmaSourceIsValid(source))
+    if(!remaining || !WsGdmaSourceIsValid(source))
     {
         IO[0x48] &= 0x7F;
         return;
     }
 
-    while(remaining)
+    if(step > 0)
     {
-        if (!WsGdmaSourceIsValid(source)) break;
-        BYTE lo = ReadMem(source);
-        BYTE hi = ReadMem(source + 1);
-        WriteMem(dest, lo);
-        WriteMem((WORD)(dest + 1), hi);
-        source = (DWORD)((source + step) & 0x0FFFFE);
-        dest = (WORD)(dest + step);
-        remaining -= 2;
+        while(remaining)
+        {
+            const int sourcePage = (int)((source >> 16) & 0x0F);
+            const WORD sourceOff = (WORD)source;
+            unsigned int chunk;
+
+            if(!WsGdmaSourceIsValid(source)) break;
+
+            chunk = remaining;
+            if(chunk > 0x10000u - sourceOff) chunk = 0x10000u - sourceOff;
+            if(chunk > 0x10000u - dest)      chunk = 0x10000u - dest;
+            chunk &= 0xFFFE;
+            if(!chunk) break;
+
+            if(sourcePage == 0)
+            {
+                memmove(IRAM + dest, IRAM + sourceOff, chunk);
+            }
+            else
+            {
+                memcpy(IRAM + dest, Page[sourcePage] + sourceOff, chunk);
+            }
+            source = (DWORD)((source + chunk) & 0x0FFFFE);
+            dest = (WORD)(dest + chunk);
+            remaining -= (WORD)chunk;
+        }
+    }
+    else
+    {
+        while(remaining)
+        {
+            const int sourcePage = (int)((source >> 16) & 0x0F);
+            const WORD sourceOff = (WORD)source;
+            BYTE* src;
+
+            if(!WsGdmaSourceIsValid(source)) break;
+
+            src = Page[sourcePage] + sourceOff;
+            IRAM[dest] = src[0];
+            IRAM[(WORD)(dest + 1)] = src[1];
+            source = (DWORD)((source - 2) & 0x0FFFFE);
+            dest = (WORD)(dest - 2);
+            remaining -= 2;
+        }
     }
 
     WORD transferred = (WORD)(length - remaining);
     if(transferred)
     {
+        WsSyncIramWriteSideEffects(initialDest, transferred);
         GDmaExtraCycles += 5 + (int)transferred;
         WS_BENCH_INC(gdmaTransfers);
         WS_BENCH_ADD(gdmaBytes, transferred);
@@ -129,6 +207,51 @@ void WsAllocateBuffers(void)
     // 64 KB IRAM
     IRAM = (BYTE*)malloc(0x10000u);
     memset(IRAM, 0, 0x10000u);
+}
+
+#ifdef BENCHMARK_LOGS
+void WsBenchSpriteLine(unsigned int candidates, unsigned int visible,
+                       unsigned int pixels, unsigned int clipLeft,
+                       unsigned int clipRight, unsigned int windowSkips,
+                       unsigned int prioritySkips, unsigned int transparentSkips,
+                       unsigned int limited)
+{
+    s_coreStats.spriteLines++;
+    s_coreStats.spriteCandidates += candidates;
+    s_coreStats.spriteVisible += visible;
+    s_coreStats.spritePixels += pixels;
+    s_coreStats.spriteLimitedLines += limited;
+    s_coreStats.spriteClipLeft += clipLeft;
+    s_coreStats.spriteClipRight += clipRight;
+    s_coreStats.spriteWindowSkips += windowSkips;
+    s_coreStats.spritePrioritySkips += prioritySkips;
+    s_coreStats.spriteTransparentSkips += transparentSkips;
+}
+#endif
+
+static void WsRefreshSpriteTable(void)
+{
+	const int tableBase = (SPRTAB & 0x1F) << 9;
+	int offset = SPRBGN << 2;
+	int bytes = SPRCNT << 2;
+
+    memcpy(SprTMap, IRAM + tableBase + offset, bytes);
+    SprTTMap = SprTMap;
+    SprETMap = SprTMap + bytes - 4;
+
+#ifdef BENCHMARK_LOGS
+    s_coreStats.spriteTableBase = (unsigned int)tableBase;
+    s_coreStats.spriteFirst = (unsigned int)SPRBGN;
+    s_coreStats.spriteCountReg = (unsigned int)SPRCNT;
+    s_coreStats.spriteCached = (unsigned int)SPRCNT;
+	s_coreStats.spriteWrapped = 0;
+#endif
+}
+
+static int WsUseEarlySpriteLatch(void)
+{
+	const int tableBase = (SPRTAB & 0x1F) << 9;
+	return tableBase >= 0x2000 || (DSPCTL & 0x38) == 0x38;
 }
 
 void  ComEEP(struct EEPROM *eeprom, WORD *cmd, WORD *data)
@@ -221,12 +344,12 @@ void  ComEEP(struct EEPROM *eeprom, WORD *cmd, WORD *data)
     }
 }
 
-inline BYTE ReadMem(DWORD A)
+WS_CORE_CODE BYTE ReadMem(DWORD A)
 {
     return Page[(A >> 16) & 0xF][A & 0xFFFF];
 }
 
-void WriteMem(DWORD A, BYTE V)
+WS_CORE_CODE void WriteMem(DWORD A, BYTE V)
 {
     (*WriteMemFnTable[(A >> 16) & 0x0F])(A, V);
 }
@@ -783,12 +906,7 @@ void WsReset (void)
         sCEep.we = 0;
     }
     Page[0xF] = ROMMap[0xFF];
-    i = (SPRTAB & 0x1F) << 9;
-    i += SPRBGN << 2;
-    j = SPRCNT << 2;
-    memcpy(SprTMap, IRAM + i, j);
-    SprTTMap = SprTMap;
-    SprETMap = SprTMap + j - 4;
+    WsRefreshSpriteTable();
     WriteIO(0x07, 0x00);
     WriteIO(0x14, 0x01);
     WriteIO(0x1C, 0x99);
@@ -933,16 +1051,13 @@ int Interrupt(void)
             WS_BENCH_INC(apuTicks);
 			//NCSR = apuShiftReg();
             break;
-        case 4:
-            if(RSTRL == 140)
-            {
-                i = (SPRTAB & 0x1F) << 9;
-                i += SPRBGN << 2;
-                j = SPRCNT << 2;
-                memcpy(SprTMap, IRAM + i, j);
-                SprTTMap = SprTMap;
-                SprETMap= SprTMap + j - 4;
-            }
+		case 4:
+		{
+			const int earlySpriteLatch = WsUseEarlySpriteLatch();
+			if((earlySpriteLatch && RSTRL == 0) || (!earlySpriteLatch && RSTRL == 140))
+			{
+				WsRefreshSpriteTable();
+			}
 
             if(LCDSLP & 0x01)
             {
@@ -972,6 +1087,7 @@ int Interrupt(void)
                 }
             }
             break;
+		}
         case 6:
             if((TIMCTL & 0x01) && HTimer)
             {

@@ -91,6 +91,7 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
   uint32_t benchMaxLateUs = 0;
   uint64_t benchIdleDelayUs = 0;
   uint64_t benchIdleSpinUs = 0;
+  uint32_t benchLastLargestInternal = 0;
 #endif
 
   for (;;) {
@@ -135,17 +136,32 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
       EMU_LOG("[WS][BENCH] irq key=%u htm=%u vtm=%u vblank=%u line=%u\n",
               coreStats.keyIrqs, coreStats.htimerIrqs, coreStats.vtimerIrqs,
               coreStats.vblankIrqs, coreStats.lineIrqs);
+      if (coreStats.spritePixels || coreStats.spriteLimitedLines || coreStats.spriteClipLeft || coreStats.spriteClipRight) {
+        EMU_LOG("[WS][SPR] base=%04X first=%u cnt=%u cached=%u wrap=%u px=%u vis=%u/%u limit=%u clip=%u/%u skip=%u/%u/%u dsp=%02X\n",
+                coreStats.spriteTableBase, coreStats.spriteFirst, coreStats.spriteCountReg,
+                coreStats.spriteCached, coreStats.spriteWrapped,
+                coreStats.spritePixels, coreStats.spriteVisible, coreStats.spriteCandidates,
+                coreStats.spriteLimitedLines, coreStats.spriteClipLeft, coreStats.spriteClipRight,
+                coreStats.spriteWindowSkips, coreStats.spritePrioritySkips,
+                coreStats.spriteTransparentSkips, IO[0x00]);
+      }
       EMU_LOG("[WS][BENCH] display frames=%lu avg/max %.2f/%.2f ms pending=%lu\n",
               (unsigned long)dispFrames, dispAvgMs, (float)dispMaxUs / 1000.0f,
               (unsigned long)dispPending);
       EMU_LOG("[WS][BENCH] audio blocks=%lu underflows=%lu maxAvail=%lu maxQueue=%lu\n",
               (unsigned long)audioBlocks, (unsigned long)audioUnderflows,
               (unsigned long)audioMaxAvailable, (unsigned long)audioMaxQueue);
+      const uint32_t heapFree = esp_get_free_heap_size();
+      const uint32_t largest8 = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+      const uint32_t largestInternal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+      const uint32_t minFree = heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
       EMU_LOG("[WS][BENCH] heap free=%u largest8=%u largestInternal=%u minFree=%u\n",
-              esp_get_free_heap_size(),
-              heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
-              heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-              heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT));
+              heapFree, largest8, largestInternal, minFree);
+      if (benchLastLargestInternal && largestInternal + 16384u < benchLastLargestInternal) {
+        EMU_LOG("[WS][BENCH][HEAP] largestInternal drop %u -> %u bytes\n",
+                benchLastLargestInternal, largestInternal);
+      }
+      benchLastLargestInternal = largestInternal;
       benchCoreTotalUs = 0;
       benchCoreMaxUs = 0;
       benchLateFrames = 0;

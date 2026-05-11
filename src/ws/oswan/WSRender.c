@@ -113,6 +113,17 @@ WS_PPU_CODE void RefreshLine(int Line)
     unsigned int i, j, k;
     BYTE index[8];
     WORD BaseCol;           // 
+#ifdef BENCHMARK_LOGS
+    unsigned int sprCandidates = 0;
+    unsigned int sprVisible = 0;
+    unsigned int sprPixels = 0;
+    unsigned int sprLimited = 0;
+    unsigned int sprClipLeft = 0;
+    unsigned int sprClipRight = 0;
+    unsigned int sprWindowSkips = 0;
+    unsigned int sprPrioritySkips = 0;
+    unsigned int sprTransparentSkips = 0;
+#endif
     pSBuf = FrameBuffer + Line * SCREEN_WIDTH;
     pSWrBuf = pSBuf;
 
@@ -606,37 +617,66 @@ WS_PPU_CODE void RefreshLine(int Line)
             }
         }
 
-        for (pbTMap = SprETMap; pbTMap >= SprTTMap; pbTMap -= 4) // 
+        BYTE* lineSprites[32];
+        int lineSpriteCount = 0;
+        if (SprETMap >= SprTTMap)
         {
+            for (pbTMap = SprTTMap; pbTMap <= SprETMap; pbTMap += 4)
+            {
+#ifdef BENCHMARK_LOGS
+                sprCandidates++;
+#endif
+			int testY = (pbTMap[2] > 0xF8) ? (int)pbTMap[2] - 0x100 : (int)pbTMap[2];
+                if (Line < testY)
+                    continue;
+                if (Line >= testY + 8)
+                    continue;
+
+                lineSprites[lineSpriteCount++] = pbTMap;
+                if (lineSpriteCount == 32)
+                {
+#ifdef BENCHMARK_LOGS
+                    sprLimited++;
+#endif
+                    break;
+                }
+            }
+        }
+
+        for (int spriteIndex = lineSpriteCount - 1; spriteIndex >= 0; --spriteIndex)
+        {
+            pbTMap = lineSprites[spriteIndex];
             TMap = pbTMap[0];
             TMap |= pbTMap[1] << 8;
 
-            if (pbTMap[2] > 0xF8)
-            {
-                j = pbTMap[2] - 0x100;
-            }
-            else
-            {
-                j = pbTMap[2];
-            }
-            if (pbTMap[3] > 0xF8)
-            {
-                k = pbTMap[3] - 0x100;
-            }
-            else
-            {
-                k = pbTMap[3];
-            }
+		int sprY = (pbTMap[2] > 0xF8) ? (int)pbTMap[2] - 0x100 : (int)pbTMap[2];
+		int sprX = (pbTMap[3] > 0xF8) ? (int)pbTMap[3] - 0x100 : (int)pbTMap[3];
 
-            if (Line < j)
+            if (sprX <= -8)
                 continue;
-            if (Line >= j + 8)
-                continue;
-            if (LCD_MAIN_W <= k)
+            if (LCD_MAIN_W <= sprX)
                 continue;
 
-            i = k;
-            pSWrBuf = pSBuf + i;
+#ifdef BENCHMARK_LOGS
+            sprVisible++;
+#endif
+            int firstPixel = 0;
+            int lastPixel = 7;
+            if (sprX < 0)
+            {
+                firstPixel = -sprX;
+#ifdef BENCHMARK_LOGS
+                sprClipLeft++;
+#endif
+            }
+            if (sprX + 8 > LCD_MAIN_W)
+            {
+                lastPixel = LCD_MAIN_W - 1 - sprX;
+#ifdef BENCHMARK_LOGS
+                sprClipRight++;
+#endif
+            }
+            pSWrBuf = pSBuf + sprX + firstPixel;
 
             if (COLCTL & 0x40)
             {
@@ -644,11 +684,11 @@ WS_PPU_CODE void RefreshLine(int Line)
                 pbTData += (TMap & SPR_TILE) << 5;
                 if (TMap & SPR_VREV)
                 {
-                    pbTData += (7 - Line + j) << 2;
+                    pbTData += (7 - Line + sprY) << 2;
                 }
                 else
                 {
-                    pbTData += (Line - j) << 2;
+                    pbTData += (Line - sprY) << 2;
                 }
             }
             else
@@ -657,11 +697,11 @@ WS_PPU_CODE void RefreshLine(int Line)
                 pbTData += (TMap & SPR_TILE) << 4;
                 if (TMap & SPR_VREV)
                 {
-                    pbTData += (7 - Line + j) << 1;
+                    pbTData += (7 - Line + sprY) << 1;
                 }
                 else
                 {
-                    pbTData += (Line - j) << 1;
+                    pbTData += (Line - sprY) << 1;
                 }
             }
 
@@ -764,10 +804,10 @@ WS_PPU_CODE void RefreshLine(int Line)
                 index[4] = j;
             }
 
-            pW = WBuf + 8 + k;
-            pZ = ZBuf + k + 8;
+            pW = WBuf + 8 + sprX + firstPixel;
+            pZ = ZBuf + 8 + sprX + firstPixel;
             PalIndex = ((TMap & SPR_PAL) >> 9) + 8;
-            for(i = 0; i < 8; i++, pZ++, pW++)
+            for(i = firstPixel; i <= (unsigned int)lastPixel; i++, pZ++, pW++)
             {
                 if(DSPCTL & 0x08)
                 {
@@ -776,6 +816,9 @@ WS_PPU_CODE void RefreshLine(int Line)
                         if(!*pW)
                         {
                             pSWrBuf++;
+#ifdef BENCHMARK_LOGS
+                            sprWindowSkips++;
+#endif
                             continue;
                         }
                     }
@@ -784,6 +827,9 @@ WS_PPU_CODE void RefreshLine(int Line)
                         if(*pW)
                         {
                             pSWrBuf++;
+#ifdef BENCHMARK_LOGS
+                            sprWindowSkips++;
+#endif
                             continue;
                         }
                     }
@@ -791,17 +837,31 @@ WS_PPU_CODE void RefreshLine(int Line)
                 if((!index[i]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800)))))
                 {
                     pSWrBuf++;
+#ifdef BENCHMARK_LOGS
+                    sprTransparentSkips++;
+#endif
                     continue;
                 }
                 if((*pZ) && (!(TMap & SPR_LAYR)))
                 {
                     pSWrBuf++;
+#ifdef BENCHMARK_LOGS
+                    sprPrioritySkips++;
+#endif
                     continue;
                 }
                 *pSWrBuf++ = Palette[PalIndex][index[i]];
+#ifdef BENCHMARK_LOGS
+                sprPixels++;
+#endif
             }
         }
     }
+#ifdef BENCHMARK_LOGS
+    WsBenchSpriteLine(sprCandidates, sprVisible, sprPixels, sprClipLeft,
+                      sprClipRight, sprWindowSkips, sprPrioritySkips,
+                      sprTransparentSkips, sprLimited);
+#endif
 }
 
 /*
