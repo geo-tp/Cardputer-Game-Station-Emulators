@@ -84,6 +84,57 @@ static UINT32 cs_base;
 static UINT32 prefix_base;  /* base address of the latest prefix segment */
 char seg_prefix;        /* prefix segment indicator */
 
+#ifdef WS_CPU_PROFILE
+static UINT32 nec_profile_op[256];
+static UINT32 nec_profile_rep[256];
+
+static void nec_profile_print_top(const char* label, const UINT32* counts)
+{
+    UINT8 topOp[8] = {0};
+    UINT32 topCount[8] = {0};
+
+    for(UINT32 op = 0; op < 256; ++op)
+    {
+        const UINT32 count = counts[op];
+        for(UINT32 i = 0; i < 8; ++i)
+        {
+            if(count > topCount[i])
+            {
+                for(UINT32 j = 7; j > i; --j)
+                {
+                    topCount[j] = topCount[j - 1];
+                    topOp[j] = topOp[j - 1];
+                }
+                topCount[i] = count;
+                topOp[i] = (UINT8)op;
+                break;
+            }
+        }
+    }
+
+    printf("[WS][CPU][PROFILE] %s", label);
+    for(UINT32 i = 0; i < 8 && topCount[i]; ++i)
+    {
+        printf(" %02X=%u", topOp[i], topCount[i]);
+    }
+    printf("\n");
+}
+
+void nec_profile_log_and_reset(void)
+{
+    nec_profile_print_top("op", nec_profile_op);
+    nec_profile_print_top("rep", nec_profile_rep);
+    memset(nec_profile_op, 0, sizeof(nec_profile_op));
+    memset(nec_profile_rep, 0, sizeof(nec_profile_rep));
+}
+
+#define NEC_PROFILE_OP(op)  (nec_profile_op[(op) & 0xff]++)
+#define NEC_PROFILE_REP(op) (nec_profile_rep[(op) & 0xff]++)
+#else
+#define NEC_PROFILE_OP(op)  ((void)0)
+#define NEC_PROFILE_REP(op) ((void)0)
+#endif
+
 
 /* The interrupt number of a pending external interrupt pending NMI is 2.   */
 /* For INTR interrupts, the level is caught on the bus during an INTA cycle */
@@ -383,6 +434,7 @@ OP( 0x64, i_repnc  ) {  UINT32 next = FETCHOP;  UINT16 c = I.regs.w[CW];
         case 0x3e:  seg_prefix=TRUE;    prefix_base=seg_base[DS]; next = FETCHOP; CLK(2); break;
     }
 
+    NEC_PROFILE_REP(next);
     switch(next) {
         case 0x6c:  CLK(2); if (c) do { i_insb();  c--; } while (c>0 && !CF); I.regs.w[CW]=c; break;
         case 0x6d:  CLK(2); if (c) do { i_insw();  c--; } while (c>0 && !CF); I.regs.w[CW]=c; break;
@@ -411,6 +463,7 @@ OP( 0x65, i_repc  ) {   UINT32 next = FETCHOP;  UINT16 c = I.regs.w[CW];
         case 0x3e:  seg_prefix=TRUE;    prefix_base=seg_base[DS]; next = FETCHOP; CLK(2); break;
     }
 
+    NEC_PROFILE_REP(next);
     switch(next) {
         case 0x6c:  CLK(2); if (c) do { i_insb();  c--; } while (c>0 && CF);    I.regs.w[CW]=c; break;
         case 0x6d:  CLK(2); if (c) do { i_insw();  c--; } while (c>0 && CF);    I.regs.w[CW]=c; break;
@@ -1022,6 +1075,7 @@ OP( 0xf2, i_repne    ) { UINT32 next = FETCHOP; UINT16 c = I.regs.w[CW];
         case 0x3e:  seg_prefix=TRUE;    prefix_base=seg_base[DS]; next = FETCHOP; CLK(2); break;
     }
 
+    NEC_PROFILE_REP(next);
     switch(next) {
         case 0x6c:  CLK(2); if (c) do { i_insb();  c--; } while (c>0);  I.regs.w[CW]=c; break;
         case 0x6d:  CLK(2); if (c) do { i_insw();  c--; } while (c>0);  I.regs.w[CW]=c; break;
@@ -1049,6 +1103,7 @@ OP( 0xf3, i_repe     ) { UINT32 next = FETCHOP; UINT16 c = I.regs.w[CW];
         case 0x3e:  seg_prefix=TRUE;    prefix_base=seg_base[DS]; next = FETCHOP; CLK(2); break;
     }
 
+    NEC_PROFILE_REP(next);
     switch(next) {
         case 0x6c:  CLK(5); if (c) do { THROUGH; i_insb();  c--; CLK( 0); } while (c>0);    I.regs.w[CW]=c; break;
         case 0x6d:  CLK(5); if (c) do { THROUGH; i_insw();  c--; CLK( 0); } while (c>0);    I.regs.w[CW]=c; break;
@@ -1196,7 +1251,9 @@ NEC_CORE_CODE int nec_execute(int cycles)
 
     while(nec_ICount>0) {
 
-        nec_instruction[FETCHOP]();
+        UINT32 op = FETCHOP;
+        NEC_PROFILE_OP(op);
+        nec_instruction[op]();
         nec_ICount++;
     }
 /*

@@ -2,6 +2,7 @@ extern "C" {
   #include "oswan/WS.h"
   #include "oswan/WSRender.h"
   #include "oswan/WSFileio.h"
+  #include "oswan/cpu/necintrf.h"
 }
 
 #include <M5Cardputer.h>
@@ -139,6 +140,9 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
       if (coreStats.sramBankSwitches) {
         EMU_LOG("[WS][BENCH] sram bank switches=%u\n", coreStats.sramBankSwitches);
       }
+#ifdef WS_CPU_PROFILE
+      nec_profile_log_and_reset();
+#endif
       if (coreStats.spritePixels || coreStats.spriteLimitedLines || coreStats.spriteClipLeft || coreStats.spriteClipRight) {
         EMU_LOG("[WS][SPR] base=%04X first=%u cnt=%u cached=%u wrap=%u px=%u vis=%u/%u limit=%u clip=%u/%u skip=%u/%u/%u dsp=%02X\n",
                 coreStats.spriteTableBase, coreStats.spriteFirst, coreStats.spriteCountReg,
