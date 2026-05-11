@@ -69,11 +69,12 @@ typedef enum { AL,AH,CL,CH,DL,DH,BL,BH,SPL,SPH,BPL,BPH,IXL,IXH,IYL,IYH } BREGS;
 
 /************************************************************************/
 
-#define SegBase(Seg) (I.sregs[Seg] << 4)
+#define SegBase(Seg) (seg_base[Seg])
 
-#define DefaultBase(Seg) ((seg_prefix && (Seg==DS || Seg==SS)) ? prefix_base : I.sregs[Seg] << 4)
+#define DefaultBase(Seg) ((seg_prefix && (Seg==DS || Seg==SS)) ? prefix_base : seg_base[Seg])
 
-#define SET_CS(val) { I.sregs[CS] = (WORD)(val); cs_base = (UINT32)I.sregs[CS] << 4; }
+#define SET_SEG(Seg,val) { I.sregs[Seg] = (WORD)(val); seg_base[Seg] = (UINT32)I.sregs[Seg] << 4; if ((Seg) == CS) cs_base = seg_base[CS]; }
+#define SET_CS(val) SET_SEG(CS,val)
 
 extern BYTE *Page[0x10];
 extern unsigned long WaveMap;
@@ -176,8 +177,8 @@ NEC_ALWAYS_INLINE void NecFastWrite16(UINT32 A, UINT32 V)
 #define FETCH (NecFastRead8(cs_base+I.ip++))
 #define FETCHOP (NecFastRead8(cs_base+I.ip++))
 #define FETCHWORD(var) { var=NecFastRead16(cs_base + I.ip); I.ip+=2; }
-#define PUSH(val) { I.regs.w[SP]-=2; NecFastStackWrite16((((I.sregs[SS]<<4)+I.regs.w[SP])),val); }
-#define POP(var) { var = ReadWord((((I.sregs[SS]<<4)+I.regs.w[SP]))); I.regs.w[SP]+=2; }
+#define PUSH(val) { I.regs.w[SP]-=2; NecFastStackWrite16((seg_base[SS]+I.regs.w[SP]),val); }
+#define POP(var) { var = ReadWord((seg_base[SS]+I.regs.w[SP])); I.regs.w[SP]+=2; }
 #define PEEK(addr) ((BYTE)NecFastRead8(addr))
 #define PEEKOP(addr) ((BYTE)NecFastRead8(addr))
 

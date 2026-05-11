@@ -79,6 +79,7 @@ int nec_ICount;
 
 static nec_Regs I;
 
+static UINT32 seg_base[4];
 static UINT32 cs_base;
 static UINT32 prefix_base;  /* base address of the latest prefix segment */
 char seg_prefix;        /* prefix segment indicator */
@@ -110,6 +111,8 @@ void nec_reset (void *param)
 
 
     memset( &I, 0, sizeof(I) );
+    memset( seg_base, 0, sizeof(seg_base) );
+    cs_base = 0;
 
     no_interrupt=0;
     SET_CS(0xffff);
@@ -200,7 +203,7 @@ OP( 0x03, i_add_r16w ) { DEF_r16w;  ADDW;   RegWord(ModRM)=dst;         CLKM(2,1
 OP( 0x04, i_add_ald8 ) { DEF_ald8;  ADDB;   I.regs.b[AL]=dst;           CLK(1);             }
 OP( 0x05, i_add_axd16) { DEF_axd16; ADDW;   I.regs.w[AW]=dst;           CLK(1);             }
 OP( 0x06, i_push_es  ) { PUSH(I.sregs[ES]); CLK(2);     }
-OP( 0x07, i_pop_es   ) { POP(I.sregs[ES]);  CLK(3); }
+OP( 0x07, i_pop_es   ) { UINT32 tmp; POP(tmp); SET_SEG(ES,tmp);  CLK(3); }
 
 OP( 0x08, i_or_br8   ) { DEF_br8;   ORB;    PutbackRMByte(ModRM,dst);   CLKM(3,1);      }
 OP( 0x09, i_or_wr16  ) { DEF_wr16;  ORW;    PutbackRMWord(ModRM,dst);   CLKM(3,1);  }
@@ -251,7 +254,7 @@ OP( 0x13, i_adc_r16w ) { DEF_r16w;  src+=CF;    ADDW;   RegWord(ModRM)=dst;     
 OP( 0x14, i_adc_ald8 ) { DEF_ald8;  src+=CF;    ADDB;   I.regs.b[AL]=dst;           CLK(1);             }
 OP( 0x15, i_adc_axd16) { DEF_axd16; src+=CF;    ADDW;   I.regs.w[AW]=dst;           CLK(1);             }
 OP( 0x16, i_push_ss  ) { PUSH(I.sregs[SS]);     CLK(2); }
-OP( 0x17, i_pop_ss   ) { POP(I.sregs[SS]);      CLK(3); no_interrupt=1; }
+OP( 0x17, i_pop_ss   ) { UINT32 tmp; POP(tmp); SET_SEG(SS,tmp);      CLK(3); no_interrupt=1; }
 
 OP( 0x18, i_sbb_br8  ) { DEF_br8;   src+=CF;    SUBB;   PutbackRMByte(ModRM,dst);   CLKM(3,1);      }
 OP( 0x19, i_sbb_wr16 ) { DEF_wr16;  src+=CF;    SUBW;   PutbackRMWord(ModRM,dst);   CLKM(3,1);  }
@@ -260,7 +263,7 @@ OP( 0x1b, i_sbb_r16w ) { DEF_r16w;  src+=CF;    SUBW;   RegWord(ModRM)=dst;     
 OP( 0x1c, i_sbb_ald8 ) { DEF_ald8;  src+=CF;    SUBB;   I.regs.b[AL]=dst;           CLK(1);                 }
 OP( 0x1d, i_sbb_axd16) { DEF_axd16; src+=CF;    SUBW;   I.regs.w[AW]=dst;           CLK(1); }
 OP( 0x1e, i_push_ds  ) { PUSH(I.sregs[DS]);     CLK(2); }
-OP( 0x1f, i_pop_ds   ) { POP(I.sregs[DS]);      CLK(3); }
+OP( 0x1f, i_pop_ds   ) { UINT32 tmp; POP(tmp); SET_SEG(DS,tmp);      CLK(3); }
 
 OP( 0x20, i_and_br8  ) { DEF_br8;   ANDB;   PutbackRMByte(ModRM,dst);   CLKM(3,1);      }
 OP( 0x21, i_and_wr16 ) { DEF_wr16;  ANDW;   PutbackRMWord(ModRM,dst);   CLKM(3,1);  }
@@ -268,7 +271,7 @@ OP( 0x22, i_and_r8b  ) { DEF_r8b;   ANDB;   RegByte(ModRM)=dst;         CLKM(2,1
 OP( 0x23, i_and_r16w ) { DEF_r16w;  ANDW;   RegWord(ModRM)=dst;         CLKM(2,1);  }
 OP( 0x24, i_and_ald8 ) { DEF_ald8;  ANDB;   I.regs.b[AL]=dst;           CLK(1);             }
 OP( 0x25, i_and_axd16) { DEF_axd16; ANDW;   I.regs.w[AW]=dst;           CLK(1); }
-OP( 0x26, i_es       ) { seg_prefix=TRUE;   prefix_base=I.sregs[ES]<<4; CLK(1);     nec_instruction[FETCHOP](); seg_prefix=FALSE; }
+OP( 0x26, i_es       ) { seg_prefix=TRUE;   prefix_base=seg_base[ES]; CLK(1);     nec_instruction[FETCHOP](); seg_prefix=FALSE; }
 OP( 0x27, i_daa      ) { ADJ4(6,0x60);                                  CLK(10);    }
 
 OP( 0x28, i_sub_br8  ) { DEF_br8;   SUBB;   PutbackRMByte(ModRM,dst);   CLKM(3,1);      }
@@ -277,7 +280,7 @@ OP( 0x2a, i_sub_r8b  ) { DEF_r8b;   SUBB;   RegByte(ModRM)=dst;         CLKM(2,1
 OP( 0x2b, i_sub_r16w ) { DEF_r16w;  SUBW;   RegWord(ModRM)=dst;         CLKM(2,1);  }
 OP( 0x2c, i_sub_ald8 ) { DEF_ald8;  SUBB;   I.regs.b[AL]=dst;           CLK(1);                 }
 OP( 0x2d, i_sub_axd16) { DEF_axd16; SUBW;   I.regs.w[AW]=dst;           CLK(1); }
-OP( 0x2e, i_cs       ) { seg_prefix=TRUE;   prefix_base=I.sregs[CS]<<4; CLK(1);     nec_instruction[FETCHOP](); seg_prefix=FALSE; }
+OP( 0x2e, i_cs       ) { seg_prefix=TRUE;   prefix_base=seg_base[CS]; CLK(1);     nec_instruction[FETCHOP](); seg_prefix=FALSE; }
 OP( 0x2f, i_das      ) { ADJ4(-6,-0x60);                                CLK(10);    }
 
 OP( 0x30, i_xor_br8  ) { DEF_br8;   XORB;   PutbackRMByte(ModRM,dst);   CLKM(3,1);      }
@@ -286,7 +289,7 @@ OP( 0x32, i_xor_r8b  ) { DEF_r8b;   XORB;   RegByte(ModRM)=dst;         CLKM(2,1
 OP( 0x33, i_xor_r16w ) { DEF_r16w;  XORW;   RegWord(ModRM)=dst;         CLKM(2,1);  }
 OP( 0x34, i_xor_ald8 ) { DEF_ald8;  XORB;   I.regs.b[AL]=dst;           CLK(1);                 }
 OP( 0x35, i_xor_axd16) { DEF_axd16; XORW;   I.regs.w[AW]=dst;           CLK(1); }
-OP( 0x36, i_ss       ) { seg_prefix=TRUE;   prefix_base=I.sregs[SS]<<4; CLK(1);     nec_instruction[FETCHOP](); seg_prefix=FALSE; }
+OP( 0x36, i_ss       ) { seg_prefix=TRUE;   prefix_base=seg_base[SS]; CLK(1);     nec_instruction[FETCHOP](); seg_prefix=FALSE; }
 OP( 0x37, i_aaa      ) { ADJB(6,1);                                     CLK(9);     }
 
 OP( 0x38, i_cmp_br8  ) { DEF_br8;   SUBB;                   CLKM(2,1); }
@@ -295,7 +298,7 @@ OP( 0x3a, i_cmp_r8b  ) { DEF_r8b;   SUBB;                   CLKM(2,1); }
 OP( 0x3b, i_cmp_r16w ) { DEF_r16w;  SUBW;                   CLKM(2,1);  }
 OP( 0x3c, i_cmp_ald8 ) { DEF_ald8;  SUBB;                   CLK(1); }
 OP( 0x3d, i_cmp_axd16) { DEF_axd16; SUBW;                   CLK(1); }
-OP( 0x3e, i_ds       ) { seg_prefix=TRUE;   prefix_base=I.sregs[DS]<<4; CLK(1);     nec_instruction[FETCHOP](); seg_prefix=FALSE; }
+OP( 0x3e, i_ds       ) { seg_prefix=TRUE;   prefix_base=seg_base[DS]; CLK(1);     nec_instruction[FETCHOP](); seg_prefix=FALSE; }
 OP( 0x3f, i_aas      ) { ADJB(-6,-1);                       CLK(9); }
 
 OP( 0x40, i_inc_ax  ) { IncWordReg(AW);                     CLK(1); }
@@ -374,10 +377,10 @@ OP( 0x62, i_chkind  ) {
 /* OP 0x64 - 0x67 is nop at V30MZ */
 OP( 0x64, i_repnc  ) {  UINT32 next = FETCHOP;  UINT16 c = I.regs.w[CW];
     switch(next) { /* Segments */
-        case 0x26:  seg_prefix=TRUE;    prefix_base=I.sregs[ES]<<4; next = FETCHOP; CLK(2); break;
-        case 0x2e:  seg_prefix=TRUE;    prefix_base=I.sregs[CS]<<4; next = FETCHOP; CLK(2); break;
-        case 0x36:  seg_prefix=TRUE;    prefix_base=I.sregs[SS]<<4; next = FETCHOP; CLK(2); break;
-        case 0x3e:  seg_prefix=TRUE;    prefix_base=I.sregs[DS]<<4; next = FETCHOP; CLK(2); break;
+        case 0x26:  seg_prefix=TRUE;    prefix_base=seg_base[ES]; next = FETCHOP; CLK(2); break;
+        case 0x2e:  seg_prefix=TRUE;    prefix_base=seg_base[CS]; next = FETCHOP; CLK(2); break;
+        case 0x36:  seg_prefix=TRUE;    prefix_base=seg_base[SS]; next = FETCHOP; CLK(2); break;
+        case 0x3e:  seg_prefix=TRUE;    prefix_base=seg_base[DS]; next = FETCHOP; CLK(2); break;
     }
 
     switch(next) {
@@ -402,10 +405,10 @@ OP( 0x64, i_repnc  ) {  UINT32 next = FETCHOP;  UINT16 c = I.regs.w[CW];
 
 OP( 0x65, i_repc  ) {   UINT32 next = FETCHOP;  UINT16 c = I.regs.w[CW];
     switch(next) { /* Segments */
-        case 0x26:  seg_prefix=TRUE;    prefix_base=I.sregs[ES]<<4; next = FETCHOP; CLK(2); break;
-        case 0x2e:  seg_prefix=TRUE;    prefix_base=I.sregs[CS]<<4; next = FETCHOP; CLK(2); break;
-        case 0x36:  seg_prefix=TRUE;    prefix_base=I.sregs[SS]<<4; next = FETCHOP; CLK(2); break;
-        case 0x3e:  seg_prefix=TRUE;    prefix_base=I.sregs[DS]<<4; next = FETCHOP; CLK(2); break;
+        case 0x26:  seg_prefix=TRUE;    prefix_base=seg_base[ES]; next = FETCHOP; CLK(2); break;
+        case 0x2e:  seg_prefix=TRUE;    prefix_base=seg_base[CS]; next = FETCHOP; CLK(2); break;
+        case 0x36:  seg_prefix=TRUE;    prefix_base=seg_base[SS]; next = FETCHOP; CLK(2); break;
+        case 0x3e:  seg_prefix=TRUE;    prefix_base=seg_base[DS]; next = FETCHOP; CLK(2); break;
     }
 
     switch(next) {
@@ -523,10 +526,10 @@ OP( 0x8c, i_mov_wsreg ) { GetModRM; PutRMWord(ModRM,I.sregs[(ModRM & 0x38) >> 3]
 OP( 0x8d, i_lea       ) { UINT16 ModRM = FETCH; (void)(*GetEA[ModRM])(); RegWord(ModRM)=EO;     CLK(1); }
 OP( 0x8e, i_mov_sregw ) { UINT16 src; GetModRM; src = GetRMWord(ModRM); CLKM(3,2);
     switch (ModRM & 0x38) {
-        case 0x00: I.sregs[ES] = src; break; /* mov es,ew */
+        case 0x00: SET_SEG(ES,src); break; /* mov es,ew */
         case 0x08: SET_CS(src); break; /* mov cs,ew */
-        case 0x10: I.sregs[SS] = src; break; /* mov ss,ew */
-        case 0x18: I.sregs[DS] = src; break; /* mov ds,ew */
+        case 0x10: SET_SEG(SS,src); break; /* mov ss,ew */
+        case 0x18: SET_SEG(DS,src); break; /* mov ds,ew */
         default:  ;
     }
     no_interrupt=1;
@@ -534,7 +537,7 @@ OP( 0x8e, i_mov_sregw ) { UINT16 src; GetModRM; src = GetRMWord(ModRM); CLKM(3,2
 OP( 0x8f, i_popw ) { UINT16 tmp; GetModRM; POP(tmp); PutRMWord(ModRM,tmp); CLKM(3,1); }
 OP( 0x90, i_nop  ) { CLK(1);
     /* Cycle skip for idle loops (0: NOP  1:  JMP 0) */
-    if (no_interrupt==0 && nec_ICount>0 && (PEEKOP((I.sregs[CS]<<4)+I.ip))==0xeb && (PEEK((I.sregs[CS]<<4)+I.ip+1))==0xfd)
+    if (no_interrupt==0 && nec_ICount>0 && (PEEKOP(cs_base+I.ip))==0xeb && (PEEK(cs_base+I.ip+1))==0xfd)
         nec_ICount%=15;
 }
 OP( 0x91, i_xchg_axcx ) { XchgAWReg(CW); CLK(3); }
@@ -628,8 +631,8 @@ OP( 0xc1, i_rotshft_wd8 ) {
 
 OP( 0xc2, i_ret_d16  ) { UINT32 count = FETCH; count += FETCH << 8; POP(I.ip); I.regs.w[SP]+=count; CLK(6); }
 OP( 0xc3, i_ret      ) { POP(I.ip); CLK(6); }
-OP( 0xc4, i_les_dw   ) { GetModRM; WORD tmp = GetRMWord(ModRM); RegWord(ModRM)=tmp; I.sregs[ES] = GetnextRMWord; CLK(6); }
-OP( 0xc5, i_lds_dw   ) { GetModRM; WORD tmp = GetRMWord(ModRM); RegWord(ModRM)=tmp; I.sregs[DS] = GetnextRMWord; CLK(6); }
+OP( 0xc4, i_les_dw   ) { GetModRM; WORD tmp = GetRMWord(ModRM); RegWord(ModRM)=tmp; SET_SEG(ES,GetnextRMWord); CLK(6); }
+OP( 0xc5, i_lds_dw   ) { GetModRM; WORD tmp = GetRMWord(ModRM); RegWord(ModRM)=tmp; SET_SEG(DS,GetnextRMWord); CLK(6); }
 OP( 0xc6, i_mov_bd8  ) { GetModRM; PutImmRMByte(ModRM); CLK(1); }
 OP( 0xc7, i_mov_wd16 ) { GetModRM; PutImmRMWord(ModRM); CLK(1); }
 
@@ -763,10 +766,10 @@ OP( 0xf0, i_lock     ) {  no_interrupt=1; CLK(1); }
 
 OP( 0xf2, i_repne    ) { UINT32 next = FETCHOP; UINT16 c = I.regs.w[CW];
     switch(next) { /* Segments */
-        case 0x26:  seg_prefix=TRUE;    prefix_base=I.sregs[ES]<<4; next = FETCHOP; CLK(2); break;
-        case 0x2e:  seg_prefix=TRUE;    prefix_base=I.sregs[CS]<<4; next = FETCHOP; CLK(2); break;
-        case 0x36:  seg_prefix=TRUE;    prefix_base=I.sregs[SS]<<4; next = FETCHOP; CLK(2); break;
-        case 0x3e:  seg_prefix=TRUE;    prefix_base=I.sregs[DS]<<4; next = FETCHOP; CLK(2); break;
+        case 0x26:  seg_prefix=TRUE;    prefix_base=seg_base[ES]; next = FETCHOP; CLK(2); break;
+        case 0x2e:  seg_prefix=TRUE;    prefix_base=seg_base[CS]; next = FETCHOP; CLK(2); break;
+        case 0x36:  seg_prefix=TRUE;    prefix_base=seg_base[SS]; next = FETCHOP; CLK(2); break;
+        case 0x3e:  seg_prefix=TRUE;    prefix_base=seg_base[DS]; next = FETCHOP; CLK(2); break;
     }
 
     switch(next) {
@@ -790,10 +793,10 @@ OP( 0xf2, i_repne    ) { UINT32 next = FETCHOP; UINT16 c = I.regs.w[CW];
 }
 OP( 0xf3, i_repe     ) { UINT32 next = FETCHOP; UINT16 c = I.regs.w[CW];
     switch(next) { /* Segments */
-        case 0x26:  seg_prefix=TRUE;    prefix_base=I.sregs[ES]<<4; next = FETCHOP; CLK(2); break;
-        case 0x2e:  seg_prefix=TRUE;    prefix_base=I.sregs[CS]<<4; next = FETCHOP; CLK(2); break;
-        case 0x36:  seg_prefix=TRUE;    prefix_base=I.sregs[SS]<<4; next = FETCHOP; CLK(2); break;
-        case 0x3e:  seg_prefix=TRUE;    prefix_base=I.sregs[DS]<<4; next = FETCHOP; CLK(2); break;
+        case 0x26:  seg_prefix=TRUE;    prefix_base=seg_base[ES]; next = FETCHOP; CLK(2); break;
+        case 0x2e:  seg_prefix=TRUE;    prefix_base=seg_base[CS]; next = FETCHOP; CLK(2); break;
+        case 0x36:  seg_prefix=TRUE;    prefix_base=seg_base[SS]; next = FETCHOP; CLK(2); break;
+        case 0x3e:  seg_prefix=TRUE;    prefix_base=seg_base[DS]; next = FETCHOP; CLK(2); break;
     }
 
     switch(next) {
@@ -926,10 +929,10 @@ void nec_set_reg(int regnum, unsigned val)
         case NEC_BP: I.regs.w[BP] = val; break;
         case NEC_IX: I.regs.w[IX] = val; break;
         case NEC_IY: I.regs.w[IY] = val; break;
-        case NEC_ES: I.sregs[ES] = val; break;
+        case NEC_ES: SET_SEG(ES,val); break;
         case NEC_CS: SET_CS(val); break;
-        case NEC_SS: I.sregs[SS] = val; break;
-        case NEC_DS: I.sregs[DS] = val; break;
+        case NEC_SS: SET_SEG(SS,val); break;
+        case NEC_DS: SET_SEG(DS,val); break;
         case NEC_VECTOR: I.int_vector = val; break;
     }
 }
