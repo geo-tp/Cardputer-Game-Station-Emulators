@@ -36,6 +36,7 @@ BYTE *SprTTMap;
 BYTE *SprETMap;
 BYTE* SprTMap = NULL;
 WORD* FrameBuffer = NULL;
+static WORD* FrameBufferAlloc = NULL;
 WORD (*Palette)[16] = NULL;
 WORD MonoColor[8];
 int Layer[3] = {1, 1, 1};
@@ -52,9 +53,11 @@ void AllocateBuffers(void) {
     SprTMap = (BYTE*)malloc(512 * sizeof(BYTE));
     memset(SprTMap, 0, 512 * sizeof(BYTE));
 
-    // FrameBuffer : LINE_SIZE * LCD_MAIN_H WORDs
-    FrameBuffer = (WORD*)malloc(LINE_SIZE * LCD_MAIN_H * sizeof(WORD));
-    memset(FrameBuffer, 0, LINE_SIZE * LCD_MAIN_H * sizeof(WORD));
+    // FrameBuffer has a small left guard because scrolled tile rendering can
+    // start up to 7 pixels before x=0 on the first line.
+    FrameBufferAlloc = (WORD*)malloc((LINE_SIZE * LCD_MAIN_H + 8) * sizeof(WORD));
+    memset(FrameBufferAlloc, 0, (LINE_SIZE * LCD_MAIN_H + 8) * sizeof(WORD));
+    FrameBuffer = FrameBufferAlloc + 8;
 
 #ifdef WS_USE_SEGMENT_BUFFER
     // SegmentBuffer : (LCD_MAIN_H * 4) * (8 * 4) WORDs
@@ -68,8 +71,9 @@ void FreeBuffers(void) {
         free(SprTMap);
         SprTMap = NULL;
     }
-    if (FrameBuffer) {
-        free(FrameBuffer);
+    if (FrameBufferAlloc) {
+        free(FrameBufferAlloc);
+        FrameBufferAlloc = NULL;
         FrameBuffer = NULL;
     }
 
