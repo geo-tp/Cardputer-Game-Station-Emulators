@@ -952,6 +952,68 @@ static NEC_CORE_CODE int nec_fast_rep_stosw(UINT16 c, UINT32 per_cycle, int thro
     return 1;
 }
 
+static NEC_CORE_CODE int nec_fast_rep_lodsb(UINT16 c, UINT32 per_cycle, int throttle)
+{
+    if(throttle && nec_ICount < 0)
+    {
+        I.regs.w[CW] = c;
+        nec_rewind_rep_ip();
+        return 1;
+    }
+    if(I.DF)
+        return 0;
+
+    const UINT16 n = nec_rep_fast_count(c, per_cycle, throttle);
+    if(n == 0)
+        return 0;
+
+    const BYTE* src;
+    const UINT32 src_off = I.regs.w[IX];
+    if(src_off + n > 0x10000u || !NecCanDirectReadRange(DefaultBase(DS) + src_off, n, &src))
+        return 0;
+
+    I.regs.b[AL] = ((const volatile BYTE*)src)[n - 1];
+    I.regs.w[IX] = (UINT16)(src_off + n);
+    c -= n;
+    I.regs.w[CW] = c;
+    nec_ICount -= (int)(n * per_cycle);
+    if(throttle && c && nec_ICount < 0)
+        nec_rewind_rep_ip();
+    return 1;
+}
+
+static NEC_CORE_CODE int nec_fast_rep_lodsw(UINT16 c, UINT32 per_cycle, int throttle)
+{
+    if(throttle && nec_ICount < 0)
+    {
+        I.regs.w[CW] = c;
+        nec_rewind_rep_ip();
+        return 1;
+    }
+    if(I.DF)
+        return 0;
+
+    const UINT16 n = nec_rep_fast_count(c, per_cycle, throttle);
+    if(n == 0)
+        return 0;
+
+    const UINT32 bytes = (UINT32)n << 1;
+    const BYTE* src;
+    const UINT32 src_off = I.regs.w[IX];
+    if(src_off + bytes > 0x10000u || !NecCanDirectReadRange(DefaultBase(DS) + src_off, bytes, &src))
+        return 0;
+
+    const volatile BYTE* s = src + bytes - 2;
+    I.regs.w[AW] = (UINT16)s[0] | ((UINT16)s[1] << 8);
+    I.regs.w[IX] = (UINT16)(src_off + bytes);
+    c -= n;
+    I.regs.w[CW] = c;
+    nec_ICount -= (int)(n * per_cycle);
+    if(throttle && c && nec_ICount < 0)
+        nec_rewind_rep_ip();
+    return 1;
+}
+
 OP( 0xf2, i_repne    ) { UINT32 next = FETCHOP; UINT16 c = I.regs.w[CW];
     switch(next) { /* Segments */
         case 0x26:  seg_prefix=TRUE;    prefix_base=seg_base[ES]; next = FETCHOP; CLK(2); break;
@@ -971,8 +1033,8 @@ OP( 0xf2, i_repne    ) { UINT32 next = FETCHOP; UINT16 c = I.regs.w[CW];
         case 0xa7:  CLK(5); if (c) do { THROUGH; i_cmpsw(); c--; CLK(3); } while (c>0 && ZF==0);    I.regs.w[CW]=c; break;
         case 0xaa:  CLK(2); if (c) { if(nec_fast_rep_stosb(c, 3, 0)) break; do { i_stosb(); c--; } while (c>0); } I.regs.w[CW]=c; break;
         case 0xab:  CLK(2); if (c) { if(nec_fast_rep_stosw(c, 3, 0)) break; do { i_stosw(); c--; } while (c>0); } I.regs.w[CW]=c; break;
-        case 0xac:  CLK(2); if (c) do { i_lodsb(); c--; } while (c>0);  I.regs.w[CW]=c; break;
-        case 0xad:  CLK(2); if (c) do { i_lodsw(); c--; } while (c>0);  I.regs.w[CW]=c; break;
+        case 0xac:  CLK(2); if (c) { if(nec_fast_rep_lodsb(c, 3, 0)) break; do { i_lodsb(); c--; } while (c>0); } I.regs.w[CW]=c; break;
+        case 0xad:  CLK(2); if (c) { if(nec_fast_rep_lodsw(c, 3, 0)) break; do { i_lodsw(); c--; } while (c>0); } I.regs.w[CW]=c; break;
         case 0xae:  CLK(5); if (c) do { THROUGH; i_scasb(); c--; CLK(5); } while (c>0 && ZF==0);    I.regs.w[CW]=c; break;
         case 0xaf:  CLK(5); if (c) do { THROUGH; i_scasw(); c--; CLK(5); } while (c>0 && ZF==0);    I.regs.w[CW]=c; break;
         default:        nec_instruction[next]();
@@ -998,8 +1060,8 @@ OP( 0xf3, i_repe     ) { UINT32 next = FETCHOP; UINT16 c = I.regs.w[CW];
         case 0xa7:  CLK(5); if (c) do { THROUGH; i_cmpsw(); c--; CLK( 4); } while (c>0 && ZF==1);   I.regs.w[CW]=c; break;
         case 0xaa:  CLK(5); if (c) { if(nec_fast_rep_stosb(c, 6, 1)) break; do { THROUGH; i_stosb(); c--; CLK( 3); } while (c>0); }   I.regs.w[CW]=c; break;
         case 0xab:  CLK(5); if (c) { if(nec_fast_rep_stosw(c, 6, 1)) break; do { THROUGH; i_stosw(); c--; CLK( 3); } while (c>0); }   I.regs.w[CW]=c; break;
-        case 0xac:  CLK(5); if (c) do { THROUGH; i_lodsb(); c--; CLK( 3); } while (c>0);    I.regs.w[CW]=c; break;
-        case 0xad:  CLK(5); if (c) do { THROUGH; i_lodsw(); c--; CLK( 3); } while (c>0);    I.regs.w[CW]=c; break;
+        case 0xac:  CLK(5); if (c) { if(nec_fast_rep_lodsb(c, 6, 1)) break; do { THROUGH; i_lodsb(); c--; CLK( 3); } while (c>0); }   I.regs.w[CW]=c; break;
+        case 0xad:  CLK(5); if (c) { if(nec_fast_rep_lodsw(c, 6, 1)) break; do { THROUGH; i_lodsw(); c--; CLK( 3); } while (c>0); }   I.regs.w[CW]=c; break;
         case 0xae:  CLK(5); if (c) do { THROUGH; i_scasb(); c--; CLK( 4); } while (c>0 && ZF==1);   I.regs.w[CW]=c; break;
         case 0xaf:  CLK(5); if (c) do { THROUGH; i_scasw(); c--; CLK( 4); } while (c>0 && ZF==1);   I.regs.w[CW]=c; break;
         default:     nec_instruction[next]();
