@@ -62,8 +62,8 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
   // Core/Display/Sound init
   ws_display_init();
   ws_display_start();
-  ws_sound_init(48000);
-  ws_sound_start_task(16, 0);
+  ws_sound_init(24000);
+  ws_sound_start_task(8, 0);
   WsInit(); // splash screen
   EMU_LOG("[WS] Init done\n");
   

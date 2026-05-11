@@ -14,8 +14,11 @@
 // -----------------------------------------------------------------------------
 // Config
 // -----------------------------------------------------------------------------
-#define WAV_FREQ    12000
-#define WAV_VOLUME  40
+#define WS_APU_TICK_RATE (75 * 159)
+#define WS_OUTPUT_FREQ   24000
+#define WAV_FREQ         WS_APU_TICK_RATE
+#define WAV_VOLUME       40
+#define WS_RING_BARRIER() __sync_synchronize()
 // -----------------------------------------------------------------------------
 // State APU
 // -----------------------------------------------------------------------------
@@ -29,8 +32,11 @@ int   Sound[7] = {1, 1, 1, 1, 1, 1, 1};
 // Stereo ring produced by the APU 
 unsigned char* PData[4] = { NULL, NULL, NULL, NULL };// static unsigned char PDataN[8][BUFSIZEN];
 int16_t* sndbuffer[2] = { NULL, NULL };  // [L/R]
-int32_t rBuf = 0, wBuf = 0;
+volatile int32_t rBuf = 0, wBuf = 0;
 static int   StartupFlag;
+static int   s_outputAccum = 0;
+static WORD  s_noiseLfsr = 0;
+static int   s_noiseEnabled = 0;
 
 // -----------------------------------------------------------------------------
 // Allocation buffers sound
@@ -63,8 +69,43 @@ void apuAllocateBuffers(void) {
 // -----------------------------------------------------------------------------
 int apuBufLen(void)
 {
-  if (wBuf >= rBuf) return wBuf - rBuf;
-  return SND_RNGSIZE + wBuf - rBuf;
+  int32_t read = rBuf;
+  int32_t write = wBuf;
+  if (write >= read) return write - read;
+  return SND_RNGSIZE + write - read;
+}
+
+int apuReadStereo(int16_t* left, int16_t* right)
+{
+  int32_t read = rBuf;
+  int32_t write = wBuf;
+
+  if (read == write) return 0;
+
+  WS_RING_BARRIER();
+  if (left)  *left  = sndbuffer[0][read];
+  if (right) *right = sndbuffer[1][read];
+
+  read++;
+  if (read >= SND_RNGSIZE) read = 0;
+
+  WS_RING_BARRIER();
+  rBuf = read;
+  return 1;
+}
+
+static inline void apuWriteStereo(int16_t left, int16_t right)
+{
+  int32_t write = wBuf;
+  int32_t next = write + 1;
+  if (next >= SND_RNGSIZE) next = 0;
+
+  if (next == rBuf) return;
+
+  sndbuffer[0][write] = left;
+  sndbuffer[1][write] = right;
+  WS_RING_BARRIER();
+  wBuf = next;
 }
 
 // -----------------------------------------------------------------------------
@@ -95,6 +136,9 @@ int apuInit(void)
 
   rBuf = 0;
   wBuf = 0;
+  s_outputAccum = 0;
+  s_noiseLfsr = 0;
+  s_noiseEnabled = 0;
   apuWaveCreate();
   return 0;
 }
@@ -235,7 +279,7 @@ unsigned char ws_apuVoice(int count)
 
     IO[0x89] = (BYTE)cpu_readmem20(j);
 
-    if ((count % (44100 / 12000 / k)) == 0) {
+    if ((count % (WS_OUTPUT_FREQ / 12000 / k)) == 0) {
       i--;
       j++;
     }
@@ -269,9 +313,29 @@ void apuSweep(void)
   }
 }
 
+void apuNoiseControl(unsigned char val)
+{
+  Noise.pattern = val & 0x07;
+  s_noiseEnabled = val & 0x80;
+  if (val & 0x08) {
+    s_noiseLfsr = 0;
+  }
+}
+
+static unsigned int apuNoiseBit(void)
+{
+  static const unsigned char tapBits[8] = {14, 10, 13, 4, 8, 6, 9, 11};
+  const unsigned int tap = (s_noiseLfsr >> tapBits[Noise.pattern & 0x07]) & 1;
+  const unsigned int bit7 = (s_noiseLfsr >> 7) & 1;
+  const unsigned int newBit = (tap ^ bit7) ^ 1;
+
+  s_noiseLfsr = (WORD)(((s_noiseLfsr << 1) & 0x7FFE) | newBit);
+  return newBit;
+}
+
 WORD apuShiftReg(void)
 {
-  return 0;
+  return s_noiseLfsr & 0x7FFF;
 }
 
 // -----------------------------------------------------------------------------
@@ -289,7 +353,6 @@ void WsWaveSet(BYTE voice, BYTE hvoice)
   static int point[4]    = {0,0,0,0};
   static int preindex[4] = {0,0,0,0};
   int16_t lVol[4], rVol[4];
-  int conv = 4;
   int channel, index;
   int16_t value;
 
@@ -299,9 +362,8 @@ void WsWaveSet(BYTE voice, BYTE hvoice)
     if (channel == 1 && VoiceOn && Sound[4])      { lVol[channel]=rVol[channel]=0; continue; }
     if (channel == 2 && Swp.on && !Sound[5])      { lVol[channel]=rVol[channel]=0; continue; }
 
-    if (channel == 3 && Noise.on && Sound[6]) {
-      // Bruit 
-      value = (apuMrand(15 - Noise.pattern) & 1) ? 7 : -8;
+    if (channel == 3 && Noise.on && s_noiseEnabled && Sound[6]) {
+      value = apuNoiseBit() ? 7 : -8;
     } else if (Sound[channel] == 0) {
       lVol[channel]=rVol[channel]=0; continue;
     } else {
@@ -318,14 +380,16 @@ void WsWaveSet(BYTE voice, BYTE hvoice)
 
   int16_t vVol = ((int16_t)voice  - 0x80) * 2;  // DMA voice
   int16_t hVol = ((int16_t)hvoice - 0x80) * 2;  // Hyper voice
-  int32_t mix  = (int32_t)(lVol[0]+lVol[1]+lVol[2]+lVol[3] + vVol + hVol) * WAV_VOLUME;
+  int32_t mixL = (int32_t)(lVol[0]+lVol[1]+lVol[2]+lVol[3] + vVol + hVol) * WAV_VOLUME;
+  int32_t mixR = (int32_t)(rVol[0]+rVol[1]+rVol[2]+rVol[3] + vVol + hVol) * WAV_VOLUME;
 
 
-  int16_t LL = clamp16(mix);
-  for (int i = 0; i < conv; ++i) {
-    sndbuffer[0][wBuf] = LL;
-    sndbuffer[1][wBuf] = LL;
-    if (++wBuf >= SND_RNGSIZE) wBuf = 0;
+  int16_t LL = clamp16(mixL);
+  int16_t RR = clamp16(mixR);
+  s_outputAccum += WS_OUTPUT_FREQ;
+  while (s_outputAccum >= WS_APU_TICK_RATE) {
+    apuWriteStereo(LL, RR);
+    s_outputAccum -= WS_APU_TICK_RATE;
   }
 }
 

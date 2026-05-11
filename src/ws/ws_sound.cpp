@@ -8,11 +8,12 @@ extern "C" {
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-static int           g_sample_rate = 48000;
+static constexpr int kNativeSampleRate = 24000;
+static int           g_sample_rate = kNativeSampleRate;
 static constexpr int kFps          = 75;
 static int           g_chunk       = 0; 
 static constexpr int kChannel      = 0;
-static constexpr int kMaxChunk = 400;
+static constexpr int kMaxChunk     = 320;
 static int16_t* s_buf0 = NULL;
 static int16_t* s_buf1 = NULL;
 static int16_t* s_buf[2] = { NULL, NULL };
@@ -59,10 +60,12 @@ static inline void build_block_from_apu(int16_t* dst) {
 
   // Consommation 
   for (int i = 0; i < to_read; ++i) {
-    int16_t L = sndbuffer[0][rBuf];
-    int16_t R = sndbuffer[1][rBuf];
-    rBuf = (rBuf + 1);
-    if (rBuf >= SND_RNGSIZE) rBuf = 0;
+    int16_t L = 0;
+    int16_t R = 0;
+    if (!apuReadStereo(&L, &R)) {
+      dst[i] = 0;
+      continue;
+    }
 
     int32_t m = ((int32_t)L + (int32_t)R) / 2;
     dst[i] = clamp16(m);
@@ -90,7 +93,7 @@ static inline void queue_block(const int16_t* pcm) {
 // API
 // -----------------------------------------------------------------------------
 extern "C" void ws_sound_init(int sample_rate_hz) {
-  g_sample_rate = sample_rate_hz > 0 ? sample_rate_hz : 48000;
+  g_sample_rate = sample_rate_hz > 0 ? sample_rate_hz : kNativeSampleRate;
   g_chunk = (g_sample_rate + kFps/2) / kFps;
 
   if (!buffers_ok()) {
@@ -116,8 +119,8 @@ extern "C" void ws_sound_init(int sample_rate_hz) {
     auto cfg = M5Cardputer.Speaker.config();
     cfg.sample_rate       = g_sample_rate;
     cfg.stereo            = false;  // sortie mono
-    cfg.dma_buf_len       = 512;
-    cfg.dma_buf_count     = 8;
+    cfg.dma_buf_len       = 320;
+    cfg.dma_buf_count     = 6;
     cfg.task_priority     = 4;
     cfg.task_pinned_core  = 0;
     M5Cardputer.Speaker.config(cfg);
@@ -185,7 +188,7 @@ extern "C" void ws_sound_start_task(uint32_t period_ms, int core) {
   s_periodTicks = pdMS_TO_TICKS(period_ms);
 
   s_runAudio = true;
-  xTaskCreatePinnedToCore(ws_audio_task, "ws_audio", 2048, nullptr, 6, &s_taskAudio, 0);
+  xTaskCreatePinnedToCore(ws_audio_task, "ws_audio", 2048, nullptr, 6, &s_taskAudio, core);
 }
 
 extern "C" void ws_sound_stop_task(void) {

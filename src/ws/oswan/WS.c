@@ -890,7 +890,7 @@ void  WriteIO(DWORD A, BYTE V)
         Swp.time = (V + 1) << 5;
         break;
     case 0x8E:
-        Noise.pattern = V & 0x07;
+        apuNoiseControl(V);
         break;
     case 0x8F:
         WaveMap = V << 6;

@@ -8,7 +8,7 @@ $Rev: 71 $
 
 #include "WSHard.h"
 
-#define SND_RNGSIZE 2048
+#define SND_RNGSIZE 1024
 
 typedef struct sound {
     int on;
@@ -34,10 +34,11 @@ extern SWEEP Swp;
 extern NOISE Noise;
 extern int Sound[7];
 extern int16_t* sndbuffer[2];  // [L/R]
-extern int32_t rBuf;
-extern int32_t wBuf;
+extern volatile int32_t rBuf;
+extern volatile int32_t wBuf;
 
 int apuBufLen(void);
+int apuReadStereo(int16_t* left, int16_t* right);
 void apuWaveCreate(void);
 void apuWaveDel(void);
 void apuWaveClear(void);
@@ -46,6 +47,7 @@ void apuEnd(void);
 unsigned int apuMrand(unsigned int);
 void apuSetPData(int, unsigned char);
 unsigned char apuVoice(void);
+void apuNoiseControl(unsigned char val);
 void apuSweep(void);
 WORD apuShiftReg(void);
 void apuWaveSet(void);
