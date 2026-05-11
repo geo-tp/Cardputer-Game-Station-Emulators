@@ -76,6 +76,7 @@ typedef enum { AL,AH,CL,CH,DL,DH,BL,BH,SPL,SPH,BPL,BPH,IXL,IXH,IYL,IYH } BREGS;
 #define SET_CS(val) { I.sregs[CS] = (WORD)(val); cs_base = (UINT32)I.sregs[CS] << 4; }
 
 extern BYTE *Page[0x10];
+extern unsigned long WaveMap;
 
 #if defined(__GNUC__)
 #define NEC_ALWAYS_INLINE static inline __attribute__((always_inline))
@@ -105,6 +106,25 @@ NEC_ALWAYS_INLINE UINT32 NecFastRead16(UINT32 A)
 	return (UINT32)cpu_readmem20(A) | ((UINT32)cpu_readmem20(A + 1) << 8);
 }
 
+NEC_ALWAYS_INLINE void NecFastStackWrite16(UINT32 A, UINT32 V)
+{
+	const UINT32 off = A & 0xffff;
+	const UINT32 wave = (UINT32)WaveMap;
+	if(((A >> 16) & 0x0f) == 0 && off != 0xffff &&
+	   (off & 0xfe00) != 0xfe00 &&
+	   (((off + 1) & 0xfe00) != 0xfe00) &&
+	   (((off - wave) & 0xffc0) != 0) &&
+	   ((((off + 1) & 0xffff) - wave) & 0xffc0) != 0)
+	{
+		BYTE* p = Page[0] + off;
+		p[0] = (BYTE)V;
+		p[1] = (BYTE)(V >> 8);
+		return;
+	}
+	cpu_writemem20(A, (BYTE)V);
+	cpu_writemem20(A + 1, (BYTE)(V >> 8));
+}
+
 #define GetMemB(Seg,Off) (/*nec_ICount-=((Off)&1)?1:0,*/ (UINT8)NecFastRead8((DefaultBase(Seg)+(Off))))
 #define GetMemW(Seg,Off) (/*nec_ICount-=((Off)&1)?1:0,*/ (UINT16)NecFastRead16((DefaultBase(Seg)+(Off))) )
 
@@ -123,7 +143,7 @@ NEC_ALWAYS_INLINE UINT32 NecFastRead16(UINT32 A)
 #define FETCH (NecFastRead8(cs_base+I.ip++))
 #define FETCHOP (NecFastRead8(cs_base+I.ip++))
 #define FETCHWORD(var) { var=NecFastRead16(cs_base + I.ip); I.ip+=2; }
-#define PUSH(val) { I.regs.w[SP]-=2; WriteWord((((I.sregs[SS]<<4)+I.regs.w[SP])),val); }
+#define PUSH(val) { I.regs.w[SP]-=2; NecFastStackWrite16((((I.sregs[SS]<<4)+I.regs.w[SP])),val); }
 #define POP(var) { var = ReadWord((((I.sregs[SS]<<4)+I.regs.w[SP]))); I.regs.w[SP]+=2; }
 #define PEEK(addr) ((BYTE)NecFastRead8(addr))
 #define PEEKOP(addr) ((BYTE)NecFastRead8(addr))
