@@ -73,6 +73,8 @@ typedef enum { AL,AH,CL,CH,DL,DH,BL,BH,SPL,SPH,BPL,BPH,IXL,IXH,IYL,IYH } BREGS;
 
 #define DefaultBase(Seg) ((seg_prefix && (Seg==DS || Seg==SS)) ? prefix_base : I.sregs[Seg] << 4)
 
+#define SET_CS(val) { I.sregs[CS] = (WORD)(val); cs_base = (UINT32)I.sregs[CS] << 4; }
+
 #define GetMemB(Seg,Off) (/*nec_ICount-=((Off)&1)?1:0,*/ (UINT8)cpu_readmem20((DefaultBase(Seg)+(Off))))
 #define GetMemW(Seg,Off) (/*nec_ICount-=((Off)&1)?1:0,*/ (UINT16) cpu_readmem20((DefaultBase(Seg)+(Off))) + (cpu_readmem20((DefaultBase(Seg)+((Off)+1)))<<8) )
 
@@ -88,15 +90,15 @@ typedef enum { AL,AH,CL,CH,DL,DH,BL,BH,SPL,SPH,BPL,BPH,IXL,IXH,IYL,IYH } BREGS;
 #define read_port(port) cpu_readport(port)
 #define write_port(port,val) cpu_writeport(port,val)
 
-#define FETCH (cpu_readop_arg((I.sregs[CS]<<4)+I.ip++))
-#define FETCHOP (cpu_readop((I.sregs[CS]<<4)+I.ip++))
-#define FETCHWORD(var) { var=cpu_readop_arg((((I.sregs[CS]<<4)+I.ip)))+(cpu_readop_arg((((I.sregs[CS]<<4)+I.ip+1)))<<8); I.ip+=2; }
+#define FETCH (cpu_readop_arg(cs_base+I.ip++))
+#define FETCHOP (cpu_readop(cs_base+I.ip++))
+#define FETCHWORD(var) { UINT32 _fetch_addr = cs_base + I.ip; var=cpu_readop_arg(_fetch_addr)+(cpu_readop_arg(_fetch_addr+1)<<8); I.ip+=2; }
 #define PUSH(val) { I.regs.w[SP]-=2; WriteWord((((I.sregs[SS]<<4)+I.regs.w[SP])),val); }
 #define POP(var) { var = ReadWord((((I.sregs[SS]<<4)+I.regs.w[SP]))); I.regs.w[SP]+=2; }
 #define PEEK(addr) ((BYTE)cpu_readop_arg(addr))
 #define PEEKOP(addr) ((BYTE)cpu_readop(addr))
 
-#define GetModRM UINT32 ModRM=cpu_readop_arg((I.sregs[CS]<<4)+I.ip++)
+#define GetModRM UINT32 ModRM=cpu_readop_arg(cs_base+I.ip++)
 
 /* Cycle count macros:
 	CLK  - cycle count is the same on all processors
@@ -110,12 +112,12 @@ typedef enum { AL,AH,CL,CH,DL,DH,BL,BH,SPL,SPH,BPL,BPH,IXL,IXH,IYL,IYH } BREGS;
 	Extra cycles for PUSH'ing or POP'ing registers to odd addresses is not emulated.
 
 #define CLK(all) nec_ICount-=all
-#define CLKS(v20,v30,v33) { const UINT32 ccount=(v20<<16)|(v30<<8)|v33; nec_ICount-=(ccount>>cpu_type)&0x7f; }
+#define CLKS(v20,v30,v33) { nec_ICount-=(v33); }
 #define CLKW(v20o,v30o,v33o,v20e,v30e,v33e) { const UINT32 ocount=(v20o<<16)|(v30o<<8)|v33o, ecount=(v20e<<16)|(v30e<<8)|v33e; nec_ICount-=(I.ip&1)?((ocount>>cpu_type)&0x7f):((ecount>>cpu_type)&0x7f); }
 #define CLKM(v20,v30,v33,v20m,v30m,v33m) { const UINT32 ccount=(v20<<16)|(v30<<8)|v33, mcount=(v20m<<16)|(v30m<<8)|v33m; nec_ICount-=( ModRM >=0xc0 )?((ccount>>cpu_type)&0x7f):((mcount>>cpu_type)&0x7f); }
 #define CLKR(v20o,v30o,v33o,v20e,v30e,v33e,vall) { const UINT32 ocount=(v20o<<16)|(v30o<<8)|v33o, ecount=(v20e<<16)|(v30e<<8)|v33e; if (ModRM >=0xc0) nec_ICount-=vall; else nec_ICount-=(I.ip&1)?((ocount>>cpu_type)&0x7f):((ecount>>cpu_type)&0x7f); }
 */
-#define CLKS(v20,v30,v33) { const UINT32 ccount=(v20<<16)|(v30<<8)|v33; nec_ICount-=(ccount>>cpu_type)&0x7f; }
+#define CLKS(v20,v30,v33) { nec_ICount-=(v33); }
 
 #define CLK(all) nec_ICount-=all
 #define CLKW(v30MZo,v30MZe) { nec_ICount-=(I.ip&1)?v30MZo:v30MZe; }

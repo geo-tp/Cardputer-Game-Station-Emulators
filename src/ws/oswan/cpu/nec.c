@@ -30,6 +30,13 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef WS_CORE_IRAM
+#include <esp_attr.h>
+#define NEC_CORE_CODE IRAM_ATTR
+#else
+#define NEC_CORE_CODE
+#endif
+
 #define UINT8 unsigned char
 #define UINT16 unsigned short
 #define UINT32 unsigned int
@@ -72,7 +79,7 @@ int nec_ICount;
 
 static nec_Regs I;
 
-static UINT32 cpu_type;
+static UINT32 cs_base;
 static UINT32 prefix_base;  /* base address of the latest prefix segment */
 char seg_prefix;        /* prefix segment indicator */
 
@@ -105,7 +112,7 @@ void nec_reset (void *param)
     memset( &I, 0, sizeof(I) );
 
     no_interrupt=0;
-    I.sregs[CS] = 0xffff;
+    SET_CS(0xffff);
 
 
     for (i = 0;i < 256; i++)
@@ -153,7 +160,7 @@ void nec_int(DWORD wektor)
         PUSH(I.sregs[CS]);
         PUSH(I.ip);
         I.ip = (WORD)dest_off;
-        I.sregs[CS] = (WORD)dest_seg;
+        SET_CS(dest_seg);
     }
 }
 
@@ -174,7 +181,7 @@ static void nec_interrupt(unsigned int_num, BOOLEAN md_flag)
     PUSH(I.sregs[CS]);
     PUSH(I.ip);
     I.ip = (WORD)dest_off;
-    I.sregs[CS] = (WORD)dest_seg;
+    SET_CS(dest_seg);
 
 }
 
@@ -183,7 +190,7 @@ static void nec_interrupt(unsigned int_num, BOOLEAN md_flag)
 /*                             OPCODES                                      */
 /****************************************************************************/
 
-#define OP(num,func_name) static void func_name(void)
+#define OP(num,func_name) static NEC_CORE_CODE void func_name(void)
 
 
 OP( 0x00, i_add_br8  ) { DEF_br8;   ADDB;   PutbackRMByte(ModRM,dst);   CLKM(3,1);      }
@@ -517,7 +524,7 @@ OP( 0x8d, i_lea       ) { UINT16 ModRM = FETCH; (void)(*GetEA[ModRM])(); RegWord
 OP( 0x8e, i_mov_sregw ) { UINT16 src; GetModRM; src = GetRMWord(ModRM); CLKM(3,2);
     switch (ModRM & 0x38) {
         case 0x00: I.sregs[ES] = src; break; /* mov es,ew */
-        case 0x08: I.sregs[CS] = src; break; /* mov cs,ew */
+        case 0x08: SET_CS(src); break; /* mov cs,ew */
         case 0x10: I.sregs[SS] = src; break; /* mov ss,ew */
         case 0x18: I.sregs[DS] = src; break; /* mov ds,ew */
         default:  ;
@@ -540,7 +547,7 @@ OP( 0x97, i_xchg_axdi ) { XchgAWReg(IY); CLK(3); }
 
 OP( 0x98, i_cbw       ) { I.regs.b[AH] = (I.regs.b[AL] & 0x80) ? 0xff : 0;  CLK(1); }
 OP( 0x99, i_cwd       ) { I.regs.w[DW] = (I.regs.b[AH] & 0x80) ? 0xffff : 0;    CLK(1); }
-OP( 0x9a, i_call_far  ) { UINT32 tmp, tmp2; FETCHWORD(tmp); FETCHWORD(tmp2); PUSH(I.sregs[CS]); PUSH(I.ip); I.ip = (WORD)tmp; I.sregs[CS] = (WORD)tmp2; CLK(10); }
+OP( 0x9a, i_call_far  ) { UINT32 tmp, tmp2; FETCHWORD(tmp); FETCHWORD(tmp2); PUSH(I.sregs[CS]); PUSH(I.ip); I.ip = (WORD)tmp; SET_CS(tmp2); CLK(10); }
 OP( 0x9b, i_wait      ) { ; }
 OP( 0x9c, i_pushf     ) { PUSH( CompressFlags() ); CLK(2); }
 OP( 0x9d, i_popf      ) { UINT32 tmp; POP(tmp); ExpandFlags(tmp); CLK(3);}
@@ -647,12 +654,12 @@ OP( 0xc9, i_leave ) {
     POP(I.regs.w[BP]);
     CLK(2);
 }
-OP( 0xca, i_retf_d16  ) { UINT32 count = FETCH; count += FETCH << 8; POP(I.ip); POP(I.sregs[CS]); I.regs.w[SP]+=count; CLK(9); }
-OP( 0xcb, i_retf      ) { POP(I.ip); POP(I.sregs[CS]); CLK(8); }
+OP( 0xca, i_retf_d16  ) { UINT32 count = FETCH; UINT32 tmp; count += FETCH << 8; POP(I.ip); POP(tmp); SET_CS(tmp); I.regs.w[SP]+=count; CLK(9); }
+OP( 0xcb, i_retf      ) { UINT32 tmp; POP(I.ip); POP(tmp); SET_CS(tmp); CLK(8); }
 OP( 0xcc, i_int3      ) { nec_interrupt(3,0); CLK(9); }
 OP( 0xcd, i_int       ) { nec_interrupt(FETCH,0); CLK(10); }
 OP( 0xce, i_into      ) { if (OF) { nec_interrupt(4,0); CLK(13); } else CLK(6); }
-OP( 0xcf, i_iret      ) { POP(I.ip); POP(I.sregs[CS]); i_popf(); CLK(10); }
+OP( 0xcf, i_iret      ) { UINT32 tmp; POP(I.ip); POP(tmp); SET_CS(tmp); i_popf(); CLK(10); }
 
 OP( 0xd0, i_rotshft_b ) {
     UINT32 src, dst; GetModRM; src = (UINT32)GetRMByte(ModRM); dst=src;
@@ -735,7 +742,7 @@ OP( 0xe7, i_outax  ) { UINT8 port = FETCH; write_port(port, I.regs.b[AL]); write
 
 OP( 0xe8, i_call_d16 ) { UINT32 tmp; FETCHWORD(tmp); PUSH(I.ip); I.ip = (WORD)(I.ip+(INT16)tmp); CLK(5); }
 OP( 0xe9, i_jmp_d16  ) { UINT32 tmp; FETCHWORD(tmp); I.ip = (WORD)(I.ip+(INT16)tmp); CLK(4); }
-OP( 0xea, i_jmp_far  ) { UINT32 tmp,tmp1; FETCHWORD(tmp); FETCHWORD(tmp1); I.sregs[CS] = (WORD)tmp1;    I.ip = (WORD)tmp; CLK(7);   }
+OP( 0xea, i_jmp_far  ) { UINT32 tmp,tmp1; FETCHWORD(tmp); FETCHWORD(tmp1); SET_CS(tmp1);    I.ip = (WORD)tmp; CLK(7);   }
 OP( 0xeb, i_jmp_d8   ) { int tmp = (int)((INT8)FETCH); CLK(4);
     if (tmp==-2 && no_interrupt==0 && nec_ICount>0) nec_ICount%=12; /* cycle skip */
     I.ip = (WORD)(I.ip+tmp);
@@ -861,9 +868,9 @@ OP( 0xff, i_ffpre ) { UINT32 tmp, tmp1; GetModRM; tmp=GetRMWord(ModRM);
         case 0x00: tmp1 = tmp+1; I.OverVal = (tmp==0x7fff); SetAF(tmp1,tmp,1); SetSZPF_Word(tmp1); PutbackRMWord(ModRM,(WORD)tmp1); CLKM(3,1); break; /* INC */
         case 0x08: tmp1 = tmp-1; I.OverVal = (tmp==0x8000); SetAF(tmp1,tmp,1); SetSZPF_Word(tmp1); PutbackRMWord(ModRM,(WORD)tmp1); CLKM(3,1); break; /* DEC */
         case 0x10: PUSH(I.ip);  I.ip = (WORD)tmp; CLKM(6,5); break; /* CALL */
-        case 0x18: tmp1 = I.sregs[CS]; I.sregs[CS] = GetnextRMWord; PUSH(tmp1); PUSH(I.ip); I.ip = tmp; CLKM(12,1); break; /* CALL FAR */
+        case 0x18: tmp1 = I.sregs[CS]; SET_CS(GetnextRMWord); PUSH(tmp1); PUSH(I.ip); I.ip = tmp; CLKM(12,1); break; /* CALL FAR */
         case 0x20: I.ip = tmp;  CLKM(5,4); break; /* JMP */
-        case 0x28: I.ip = tmp; I.sregs[CS] = GetnextRMWord; CLKM(10,1); break; /* JMP FAR */
+        case 0x28: I.ip = tmp; SET_CS(GetnextRMWord); CLKM(10,1); break; /* JMP FAR */
         case 0x30: PUSH(tmp); CLKM(2,1); break;
         default:  ;
     }
@@ -920,7 +927,7 @@ void nec_set_reg(int regnum, unsigned val)
         case NEC_IX: I.regs.w[IX] = val; break;
         case NEC_IY: I.regs.w[IY] = val; break;
         case NEC_ES: I.sregs[ES] = val; break;
-        case NEC_CS: I.sregs[CS] = val; break;
+        case NEC_CS: SET_CS(val); break;
         case NEC_SS: I.sregs[SS] = val; break;
         case NEC_DS: I.sregs[DS] = val; break;
         case NEC_VECTOR: I.int_vector = val; break;
@@ -928,12 +935,11 @@ void nec_set_reg(int regnum, unsigned val)
 }
 
 
-int nec_execute(int cycles)
+NEC_CORE_CODE int nec_execute(int cycles)
 {
     
 
     nec_ICount=cycles;
-//  cpu_type=V30;
 
     while(nec_ICount>0) {
 
