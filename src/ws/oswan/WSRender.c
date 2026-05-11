@@ -41,12 +41,97 @@ WORD (*Palette)[16] = NULL;
 WORD MonoColor[8];
 int Layer[3] = {1, 1, 1};
 int Segment[11];
+static DWORD PlaneLut[256];
 
 #ifdef WS_USE_SEGMENT_BUFFER
     WORD* SegmentBuffer = NULL;
 #endif
 
+static void InitTileDecodeLut(void)
+{
+    for(int b = 0; b < 256; ++b)
+    {
+        DWORD packed = 0;
+        for(int x = 0; x < 8; ++x)
+        {
+            if(b & (0x80 >> x))
+            {
+                packed |= (DWORD)1 << (x << 2);
+            }
+        }
+        PlaneLut[b] = packed;
+    }
+}
+
+static inline void StorePackedPixels(BYTE* index, DWORD pixels, int hrev)
+{
+    if(hrev)
+    {
+        index[0] = (BYTE)((pixels >> 28) & 0x0F);
+        index[1] = (BYTE)((pixels >> 24) & 0x0F);
+        index[2] = (BYTE)((pixels >> 20) & 0x0F);
+        index[3] = (BYTE)((pixels >> 16) & 0x0F);
+        index[4] = (BYTE)((pixels >> 12) & 0x0F);
+        index[5] = (BYTE)((pixels >>  8) & 0x0F);
+        index[6] = (BYTE)((pixels >>  4) & 0x0F);
+        index[7] = (BYTE)( pixels        & 0x0F);
+    }
+    else
+    {
+        index[0] = (BYTE)( pixels        & 0x0F);
+        index[1] = (BYTE)((pixels >>  4) & 0x0F);
+        index[2] = (BYTE)((pixels >>  8) & 0x0F);
+        index[3] = (BYTE)((pixels >> 12) & 0x0F);
+        index[4] = (BYTE)((pixels >> 16) & 0x0F);
+        index[5] = (BYTE)((pixels >> 20) & 0x0F);
+        index[6] = (BYTE)((pixels >> 24) & 0x0F);
+        index[7] = (BYTE)((pixels >> 28) & 0x0F);
+    }
+}
+
+static inline void DecodeTileRow(BYTE* index, const BYTE* data, int packedMode, int color16, int hrev)
+{
+    DWORD pixels;
+
+    if(packedMode)
+    {
+        if(color16)
+        {
+            pixels  = (DWORD)((data[0] >> 4) & 0x0F);
+            pixels |= (DWORD)( data[0]       & 0x0F) << 4;
+            pixels |= (DWORD)((data[1] >> 4) & 0x0F) << 8;
+            pixels |= (DWORD)( data[1]       & 0x0F) << 12;
+            pixels |= (DWORD)((data[2] >> 4) & 0x0F) << 16;
+            pixels |= (DWORD)( data[2]       & 0x0F) << 20;
+            pixels |= (DWORD)((data[3] >> 4) & 0x0F) << 24;
+            pixels |= (DWORD)( data[3]       & 0x0F) << 28;
+        }
+        else
+        {
+            pixels  = (DWORD)((data[0] >> 6) & 0x03);
+            pixels |= (DWORD)((data[0] >> 4) & 0x03) << 4;
+            pixels |= (DWORD)((data[0] >> 2) & 0x03) << 8;
+            pixels |= (DWORD)( data[0]       & 0x03) << 12;
+            pixels |= (DWORD)((data[1] >> 6) & 0x03) << 16;
+            pixels |= (DWORD)((data[1] >> 4) & 0x03) << 20;
+            pixels |= (DWORD)((data[1] >> 2) & 0x03) << 24;
+            pixels |= (DWORD)( data[1]       & 0x03) << 28;
+        }
+    }
+    else
+    {
+        pixels = PlaneLut[data[0]] | (PlaneLut[data[1]] << 1);
+        if(color16)
+        {
+            pixels |= (PlaneLut[data[2]] << 2) | (PlaneLut[data[3]] << 3);
+        }
+    }
+
+    StorePackedPixels(index, pixels, hrev);
+}
+
 void AllocateBuffers(void) {
+    InitTileDecodeLut();
     Palette = (WORD (*)[16])calloc(16, sizeof(*Palette));
 
     // SprTMap : 512 bytes
@@ -211,104 +296,7 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
 
-            if(COLCTL & 0x20)                       // Packed Mode
-            {
-                if(COLCTL & 0x40)                   // 16 Color
-                {
-                    index[0] = (pbTData[0] & 0xF0) >> 4;
-                    index[1] = pbTData[0] & 0x0F;
-                    index[2] = (pbTData[1] & 0xF0) >> 4;
-                    index[3] = pbTData[1] & 0x0F;
-                    index[4] = (pbTData[2] & 0xF0) >> 4;
-                    index[5] = pbTData[2] & 0x0F;
-                    index[6] = (pbTData[3] & 0xF0) >> 4;
-                    index[7] = pbTData[3] & 0x0F;
-                }
-                else                            // 4 Color
-                {
-                    index[0] = (pbTData[0] & 0xC0) >> 6;
-                    index[1] = (pbTData[0] & 0x30) >> 4;
-                    index[2] = (pbTData[0] & 0x0C) >> 2;
-                    index[3] = pbTData[0] & 0x03;
-                    index[4] = (pbTData[1] & 0xC0) >> 6;
-                    index[5] = (pbTData[1] & 0x30) >> 4;
-                    index[6] = (pbTData[1] & 0x0C) >> 2;
-                    index[7] = pbTData[1] & 0x03;
-                }
-            }
-            else
-            {
-                if(COLCTL & 0x40)                   // 16 Color
-                {
-                    index[0]  = (pbTData[0] & 0x80) ? 0x1 : 0;
-                    index[0] |= (pbTData[1] & 0x80) ? 0x2 : 0;
-                    index[0] |= (pbTData[2] & 0x80) ? 0x4 : 0;
-                    index[0] |= (pbTData[3] & 0x80) ? 0x8 : 0;
-                    index[1]  = (pbTData[0] & 0x40) ? 0x1 : 0;
-                    index[1] |= (pbTData[1] & 0x40) ? 0x2 : 0;
-                    index[1] |= (pbTData[2] & 0x40) ? 0x4 : 0;
-                    index[1] |= (pbTData[3] & 0x40) ? 0x8 : 0;
-                    index[2]  = (pbTData[0] & 0x20) ? 0x1 : 0;
-                    index[2] |= (pbTData[1] & 0x20) ? 0x2 : 0;
-                    index[2] |= (pbTData[2] & 0x20) ? 0x4 : 0;
-                    index[2] |= (pbTData[3] & 0x20) ? 0x8 : 0;
-                    index[3]  = (pbTData[0] & 0x10) ? 0x1 : 0;
-                    index[3] |= (pbTData[1] & 0x10) ? 0x2 : 0;
-                    index[3] |= (pbTData[2] & 0x10) ? 0x4 : 0;
-                    index[3] |= (pbTData[3] & 0x10) ? 0x8 : 0;
-                    index[4]  = (pbTData[0] & 0x08) ? 0x1 : 0;
-                    index[4] |= (pbTData[1] & 0x08) ? 0x2 : 0;
-                    index[4] |= (pbTData[2] & 0x08) ? 0x4 : 0;
-                    index[4] |= (pbTData[3] & 0x08) ? 0x8 : 0;
-                    index[5]  = (pbTData[0] & 0x04) ? 0x1 : 0;
-                    index[5] |= (pbTData[1] & 0x04) ? 0x2 : 0;
-                    index[5] |= (pbTData[2] & 0x04) ? 0x4 : 0;
-                    index[5] |= (pbTData[3] & 0x04) ? 0x8 : 0;
-                    index[6]  = (pbTData[0] & 0x02) ? 0x1 : 0;
-                    index[6] |= (pbTData[1] & 0x02) ? 0x2 : 0;
-                    index[6] |= (pbTData[2] & 0x02) ? 0x4 : 0;
-                    index[6] |= (pbTData[3] & 0x02) ? 0x8 : 0;
-                    index[7]  = (pbTData[0] & 0x01) ? 0x1 : 0;
-                    index[7] |= (pbTData[1] & 0x01) ? 0x2 : 0;
-                    index[7] |= (pbTData[2] & 0x01) ? 0x4 : 0;
-                    index[7] |= (pbTData[3] & 0x01) ? 0x8 : 0;
-                }
-                else                            // 4 Color
-                {
-                    index[0]  = (pbTData[0] & 0x80) ? 0x1 : 0;
-                    index[0] |= (pbTData[1] & 0x80) ? 0x2 : 0;
-                    index[1]  = (pbTData[0] & 0x40) ? 0x1 : 0;
-                    index[1] |= (pbTData[1] & 0x40) ? 0x2 : 0;
-                    index[2]  = (pbTData[0] & 0x20) ? 0x1 : 0;
-                    index[2] |= (pbTData[1] & 0x20) ? 0x2 : 0;
-                    index[3]  = (pbTData[0] & 0x10) ? 0x1 : 0;
-                    index[3] |= (pbTData[1] & 0x10) ? 0x2 : 0;
-                    index[4]  = (pbTData[0] & 0x08) ? 0x1 : 0;
-                    index[4] |= (pbTData[1] & 0x08) ? 0x2 : 0;
-                    index[5]  = (pbTData[0] & 0x04) ? 0x1 : 0;
-                    index[5] |= (pbTData[1] & 0x04) ? 0x2 : 0;
-                    index[6]  = (pbTData[0] & 0x02) ? 0x1 : 0;
-                    index[6] |= (pbTData[1] & 0x02) ? 0x2 : 0;
-                    index[7]  = (pbTData[0] & 0x01) ? 0x1 : 0;
-                    index[7] |= (pbTData[1] & 0x01) ? 0x2 : 0;
-                }
-            }
-
-            if(TMap & MAP_HREV)
-            {
-                j = index[0];
-                index[0] = index[7];
-                index[7] = j;
-                j = index[1];
-                index[1] = index[6];
-                index[6] = j;
-                j = index[2];
-                index[2] = index[5];
-                index[5] = j;
-                j = index[3];
-                index[3] = index[4];
-                index[4] = j;
-            }
+            DecodeTileRow(index, pbTData, COLCTL & 0x20, COLCTL & 0x40, TMap & MAP_HREV);
 
             PalIndex = (TMap & MAP_PAL) >> 9;
             if((!index[0]) && (!(!(COLCTL & 0x40) && (!(TMap & 0x0800))))) pSWrBuf++;
