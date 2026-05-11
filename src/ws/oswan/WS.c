@@ -232,18 +232,33 @@ void WsBenchSpriteLine(unsigned int candidates, unsigned int visible,
 static void WsRefreshSpriteTable(void)
 {
 	const int tableBase = (SPRTAB & 0x1F) << 9;
-	int offset = SPRBGN << 2;
-	int bytes = SPRCNT << 2;
+	const int first = SPRBGN & 0x7F;
+	int count = SPRCNT;
 
-    memcpy(SprTMap, IRAM + tableBase + offset, bytes);
+	if(count > 128)
+	{
+		count = 128;
+	}
+	if(first + count > 128)
+	{
+		count = 128 - first;
+	}
+
+	int offset = first << 2;
+	int bytes = count << 2;
+
+    if(bytes > 0)
+    {
+        memcpy(SprTMap, IRAM + tableBase + offset, bytes);
+    }
     SprTTMap = SprTMap;
-    SprETMap = SprTMap + bytes - 4;
+    SprETMap = bytes > 0 ? SprTMap + bytes - 4 : NULL;
 
 #ifdef BENCHMARK_LOGS
     s_coreStats.spriteTableBase = (unsigned int)tableBase;
-    s_coreStats.spriteFirst = (unsigned int)SPRBGN;
+    s_coreStats.spriteFirst = (unsigned int)first;
     s_coreStats.spriteCountReg = (unsigned int)SPRCNT;
-    s_coreStats.spriteCached = (unsigned int)SPRCNT;
+    s_coreStats.spriteCached = (unsigned int)count;
 	s_coreStats.spriteWrapped = 0;
 #endif
 }

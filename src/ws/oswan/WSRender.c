@@ -619,7 +619,7 @@ WS_PPU_CODE void RefreshLine(int Line)
 
         BYTE* lineSprites[32];
         int lineSpriteCount = 0;
-        if (SprETMap >= SprTTMap)
+        if (SprETMap && SprETMap >= SprTTMap)
         {
             for (pbTMap = SprTTMap; pbTMap <= SprETMap; pbTMap += 4)
             {
