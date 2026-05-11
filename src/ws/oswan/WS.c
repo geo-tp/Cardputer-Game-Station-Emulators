@@ -26,7 +26,11 @@ extern unsigned long SDL_UXTimerRead(void);
 extern void init_ModRM_tables(void);
 
 #define IPeriod 32          // HBlank/8 (256/8)
-#define MAX_SRAM_ALLOCATED 0x8000  // 32KB
+#define MAX_SRAM_PAGE_ALLOCATED 0x10000  // one 64KB SRAM page window
+#define SRAM_CACHE_PAGE_SHIFT 11
+#define SRAM_CACHE_PAGE_SIZE (1 << SRAM_CACHE_PAGE_SHIFT)
+#define SRAM_CACHE_PAGE_MASK (SRAM_CACHE_PAGE_SIZE - 1)
+#define SRAM_CACHE_SLOTS 8
 
 int Run;
 BYTE *Page[16];             // �o���N���蓖��
@@ -53,6 +57,19 @@ static int RAMEnable;
 int FrameSkip = 1;
 static int GDmaExtraCycles;
 static int SkipCnt = 0;
+static FILE* SramBackingFile = NULL;
+static int SramBackingBanks = 0;
+static int SramCurrentBank = 0;
+static unsigned int SramCacheClock = 0;
+typedef struct SramCacheSlot {
+    BYTE data[SRAM_CACHE_PAGE_SIZE];
+    int bank;
+    int page;
+    int valid;
+    int dirty;
+    unsigned int age;
+} SramCacheSlot;
+static SramCacheSlot SramCache[SRAM_CACHE_SLOTS];
 static int TblSkip[5][5] = {
     {1,1,1,1,1},
     {0,1,1,1,1},
@@ -74,6 +91,186 @@ static WORD DefColor[] = {
     MONO(0xF), MONO(0xE), MONO(0xD), MONO(0xC), MONO(0xB), MONO(0xA), MONO(0x9), MONO(0x8),
     MONO(0x7), MONO(0x6), MONO(0x5), MONO(0x4), MONO(0x3), MONO(0x2), MONO(0x1), MONO(0x0)
 };
+
+static void WsSramCacheFlushSlot(int slot)
+{
+    if(!SramBackingFile || !SramCache[slot].valid || !SramCache[slot].dirty)
+    {
+        return;
+    }
+
+    const long fileOffset = ((long)SramCache[slot].bank * MAX_SRAM_PAGE_ALLOCATED) +
+                            ((long)SramCache[slot].page * SRAM_CACHE_PAGE_SIZE);
+    fseek(SramBackingFile, fileOffset, SEEK_SET);
+    fwrite(SramCache[slot].data, 1, SRAM_CACHE_PAGE_SIZE, SramBackingFile);
+    SramCache[slot].dirty = 0;
+}
+
+static void WsSramBackingFlush(void)
+{
+    if(!SramBackingFile)
+    {
+        return;
+    }
+    for(int i = 0; i < SRAM_CACHE_SLOTS; ++i)
+    {
+        WsSramCacheFlushSlot(i);
+    }
+    fflush(SramBackingFile);
+}
+
+static int WsSramCacheGetSlot(int bank, int offset)
+{
+    const int page = (offset & 0xFFFF) >> SRAM_CACHE_PAGE_SHIFT;
+    int victim = 0;
+    unsigned int oldestAge = 0xFFFFFFFFu;
+
+    for(int i = 0; i < SRAM_CACHE_SLOTS; ++i)
+    {
+        if(SramCache[i].valid && SramCache[i].bank == bank && SramCache[i].page == page)
+        {
+            SramCache[i].age = ++SramCacheClock;
+            return i;
+        }
+        if(!SramCache[i].valid)
+        {
+            victim = i;
+            oldestAge = 0;
+        }
+        else if(oldestAge && SramCache[i].age < oldestAge)
+        {
+            victim = i;
+            oldestAge = SramCache[i].age;
+        }
+    }
+
+    WsSramCacheFlushSlot(victim);
+    memset(SramCache[victim].data, 0x00, SRAM_CACHE_PAGE_SIZE);
+    if(SramBackingFile)
+    {
+        const long fileOffset = ((long)bank * MAX_SRAM_PAGE_ALLOCATED) +
+                                ((long)page * SRAM_CACHE_PAGE_SIZE);
+        fseek(SramBackingFile, fileOffset, SEEK_SET);
+        fread(SramCache[victim].data, 1, SRAM_CACHE_PAGE_SIZE, SramBackingFile);
+    }
+    SramCache[victim].bank = bank;
+    SramCache[victim].page = page;
+    SramCache[victim].valid = 1;
+    SramCache[victim].dirty = 0;
+    SramCache[victim].age = ++SramCacheClock;
+    return victim;
+}
+
+void WsSramBackingClose(void)
+{
+    WsSramBackingFlush();
+    if(SramBackingFile)
+    {
+        fclose(SramBackingFile);
+        SramBackingFile = NULL;
+    }
+    SramBackingBanks = 0;
+    SramCurrentBank = 0;
+    SramCacheClock = 0;
+    memset(SramCache, 0, sizeof(SramCache));
+}
+
+void WsSramBackingInit(int banks)
+{
+    WsSramBackingClose();
+    if(banks <= 1 || !RAMMap || !RAMMap[0])
+    {
+        return;
+    }
+
+    SramBackingFile = fopen("/sd/ws_sram_banks.tmp", "w+b");
+    if(!SramBackingFile)
+    {
+        return;
+    }
+    const long backingSize = (long)banks * MAX_SRAM_PAGE_ALLOCATED;
+    if(backingSize > 0)
+    {
+        fseek(SramBackingFile, backingSize - 1, SEEK_SET);
+        fputc(0, SramBackingFile);
+        fflush(SramBackingFile);
+    }
+    SramBackingBanks = banks;
+    SramCurrentBank = 0;
+    SramCacheClock = 0;
+    memset(SramCache, 0, sizeof(SramCache));
+}
+
+void WsSramBackingSelect(int bank)
+{
+    const int banks = (SramBackingBanks > 1) ? SramBackingBanks : RAMBanks;
+    if(banks <= 1)
+    {
+        return;
+    }
+
+    bank %= banks;
+    if(bank < 0)
+    {
+        bank = 0;
+    }
+    if(bank == SramCurrentBank)
+    {
+        return;
+    }
+
+    SramCurrentBank = bank;
+}
+
+static int WsDecodeSramBank(BYTE value)
+{
+    int low = value & 0x0F;
+    int high = (value >> 4) & 0x0F;
+
+    if(high > 0 && high < RAMBanks && (low == 0 || low >= RAMBanks))
+    {
+        return high;
+    }
+    if(low < RAMBanks)
+    {
+        return low;
+    }
+    return (int)value % RAMBanks;
+}
+
+BYTE WsSramBackingRead(int offset)
+{
+    if(!SramBackingFile)
+    {
+        return RAMMap[0] ? RAMMap[0][offset & 0xFFFF] : 0x00;
+    }
+    const int slot = WsSramCacheGetSlot(SramCurrentBank, offset);
+    const BYTE value = SramCache[slot].data[offset & SRAM_CACHE_PAGE_MASK];
+    if(RAMMap[0])
+    {
+        RAMMap[0][offset & 0xFFFF] = value;
+    }
+    return value;
+}
+
+void WsSramBackingWrite(int offset, BYTE value)
+{
+    if(!SramBackingFile)
+    {
+        if(RAMMap[0])
+        {
+            RAMMap[0][offset & 0xFFFF] = value;
+        }
+        return;
+    }
+    const int slot = WsSramCacheGetSlot(SramCurrentBank, offset);
+    SramCache[slot].data[offset & SRAM_CACHE_PAGE_MASK] = value;
+    SramCache[slot].dirty = 1;
+    if(RAMMap[0])
+    {
+        RAMMap[0][offset & 0xFFFF] = value;
+    }
+}
 
 static inline int WsGdmaSourceIsValid(DWORD source)
 {
@@ -361,7 +558,16 @@ void  ComEEP(struct EEPROM *eeprom, WORD *cmd, WORD *data)
 
 WS_CORE_CODE BYTE ReadMem(DWORD A)
 {
-    return Page[(A >> 16) & 0xF][A & 0xFFFF];
+    const int page = (int)((A >> 16) & 0x0F);
+    if(page == 1 && RAMBanks > 1 && RAMEnable)
+    {
+        if(SramBackingFile)
+        {
+            return WsSramBackingRead((int)(A & 0xFFFF));
+        }
+        return Page[page][A & 0xFFFF];
+    }
+    return Page[page][A & 0xFFFF];
 }
 
 WS_CORE_CODE void WriteMem(DWORD A, BYTE V)
@@ -404,12 +610,21 @@ static void  WriteCRam(DWORD A, BYTE V)
 {   
     if (RAMBanks <= 0 || RAMSize <= 0) return;
 
-    // IMPORTANT, this will prevent writes to SRAM when not mapped
-    // Can't handle sram > 32KB, prevent writes
-    // We cant allocate more than 32 KB for SRAM, no more mem
+    // IMPORTANT, this will prevent writes to SRAM when not mapped.
     if (Page[1] != RAMMap[0]) return;
 	int offset = A & 0xFFFF;
-    if (offset >= MAX_SRAM_ALLOCATED) return;
+    int writableSize = RAMSize;
+    if(writableSize > MAX_SRAM_PAGE_ALLOCATED || RAMBanks > 1)
+    {
+        writableSize = MAX_SRAM_PAGE_ALLOCATED;
+    }
+    if (offset >= writableSize) return;
+
+    if(RAMBanks > 1 && SramBackingFile)
+    {
+        WsSramBackingWrite(offset, V);
+        return;
+    }
 
     static int flashCommand1 = 0;
 	static int flashCommand2 = 0;
@@ -771,17 +986,29 @@ void  WriteIO(DWORD A, BYTE V)
         if (CartKind & CK_EEP) { Page[1] = MemDummy; RAMEnable = 0; IO[A]=V; return; }
         RAMEnable = 0;
 
-        // IMPORTANT; only Bank 0 can be mapped and allocated; no heap space for more
-        if (V != 0) {
-            Page[1] = MemDummy;       // banques != 0 ignored
-        } else {
-            // Bank 0 only
-            if (RAMBanks >= 1 && RAMMap[0]) {
-                Page[1] = RAMMap[0];
-                RAMEnable = 1;
-            } else {
-                Page[1] = MemDummy;
+        // XIP mode keeps one writable 64KB SRAM window. Multi-bank carts alias
+        // their bank selects onto this window to avoid endless SRAM self-tests.
+        if (RAMBanks >= 1 && RAMMap[0] && (RAMBanks > 1 || V == 0)) {
+            if(RAMBanks > 1)
+            {
+                const int sramBank = WsDecodeSramBank(V);
+                if(sramBank != SramCurrentBank)
+                {
+                    WS_BENCH_INC(sramBankSwitches);
+                }
+                WsSramBackingSelect(sramBank);
+                if(!SramBackingFile && sramBank >= 0 && sramBank < RAMBanks &&
+                   RAMMap[sramBank] && RAMMap[sramBank] != MemDummy)
+                {
+                    Page[1] = RAMMap[sramBank];
+                    RAMEnable = 1;
+                    break;
+                }
             }
+            Page[1] = RAMMap[0];
+            RAMEnable = 1;
+        } else {
+            Page[1] = MemDummy;
         }
     break;
     case 0xC2:
@@ -1391,6 +1618,7 @@ void WsInit(void) {
 
 void WsDeInit(void) {
 	WsSaveIEep();
+    WsSramBackingClose();
 	WsRelease();
 	apuEnd();
 }

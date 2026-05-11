@@ -136,6 +136,9 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
       EMU_LOG("[WS][BENCH] irq key=%u htm=%u vtm=%u vblank=%u line=%u\n",
               coreStats.keyIrqs, coreStats.htimerIrqs, coreStats.vtimerIrqs,
               coreStats.vblankIrqs, coreStats.lineIrqs);
+      if (coreStats.sramBankSwitches) {
+        EMU_LOG("[WS][BENCH] sram bank switches=%u\n", coreStats.sramBankSwitches);
+      }
       if (coreStats.spritePixels || coreStats.spriteLimitedLines || coreStats.spriteClipLeft || coreStats.spriteClipRight) {
         EMU_LOG("[WS][SPR] base=%04X first=%u cnt=%u cached=%u wrap=%u px=%u vis=%u/%u limit=%u clip=%u/%u skip=%u/%u/%u dsp=%02X\n",
                 coreStats.spriteTableBase, coreStats.spriteFirst, coreStats.spriteCountReg,

@@ -400,10 +400,12 @@ int WsCreateFromMemory(const uint8_t *romData, size_t romSize)
     }
 
     /* Save memory. EEPROM does not map into page 1, so allocate only the
-       declared EEPROM payload. SRAM keeps the existing 32 KiB page window. */
+       declared EEPROM payload. SRAM keeps a page window; multi-bank SRAM
+       gets one writable bank so self-tests do not spin forever in XIP mode. */
+    WsSramBackingInit(0);
     for (i = 0; i < 256; ++i) RAMMap[i] = MemDummy;
     if (RAMBanks == 1) {
-        const size_t allocSize = (CartKind & CK_EEP) ? (size_t)RAMSize : 0x8000u;
+        const size_t allocSize = (CartKind & CK_EEP) ? (size_t)RAMSize : ((RAMSize > 0x8000) ? 0x10000u : 0x8000u);
         BYTE* one = allocSize ? (BYTE*)malloc(allocSize) : NULL;
         if (!one) {
             printf("[WS] Save memory malloc %uB failed, mapping to MemDummy\n", (unsigned)allocSize);
@@ -415,8 +417,17 @@ int WsCreateFromMemory(const uint8_t *romData, size_t romSize)
                    (CartKind & CK_EEP) ? "EEP" : "SRAM");
         }
     } else if (RAMBanks > 1) {
-        printf("[WS] Multi-bank SRAM unsupported in XIP mode (%d banks, size=0x%X)\n",
-               RAMBanks, RAMSize);
+        BYTE* one = (BYTE*)malloc(0x10000u);
+        if (!one) {
+            printf("[WS] Multi-bank SRAM bank0 malloc failed (%d banks, size=0x%X)\n",
+                   RAMBanks, RAMSize);
+        } else {
+            memset(one, 0x00, 0x10000u);
+            RAMMap[0] = one;
+            WsSramBackingInit(RAMBanks);
+            printf("[WS] Multi-bank SRAM backed by 64KB window: 65536/%u bytes\n",
+                   (unsigned)RAMSize);
+        }
     }
 
     WsReset();

@@ -61,12 +61,18 @@ typedef struct WsCoreStats {
     unsigned int vtimerIrqs;
     unsigned int vblankIrqs;
     unsigned int lineIrqs;
+    unsigned int sramBankSwitches;
     int frameSkip;
 } WsCoreStats;
 #endif
 
 void WriteIO(DWORD A, BYTE V);
 void WsReset (void);
+void WsSramBackingInit(int banks);
+void WsSramBackingSelect(int bank);
+BYTE WsSramBackingRead(int offset);
+void WsSramBackingWrite(int offset, BYTE value);
+void WsSramBackingClose(void);
 void WsRomPatch(BYTE *buf);
 int WsRun(void);
 #ifdef BENCHMARK_LOGS
