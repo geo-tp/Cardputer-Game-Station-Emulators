@@ -312,6 +312,63 @@ static void nec_interrupt(unsigned int_num, BOOLEAN md_flag)
     CLK(1); \
 } while (0)
 
+#define NEC_OP_OR_R8B(done_stmt) do { \
+    GetModRM; \
+    const UINT32 reg = (ModRM >> 3) & 7; \
+    const UINT32 regByte = ((reg & 3) << 1) | (reg >> 2); \
+    UINT32 dst = I.regs.b[regByte]; \
+    UINT32 src; \
+    if (ModRM >= 0xc0) { \
+        const UINT32 rm = ModRM & 7; \
+        src = I.regs.b[((rm & 3) << 1) | (rm >> 2)]; \
+        ORB; \
+        I.regs.b[regByte] = (UINT8)dst; \
+        CLK(1); \
+        done_stmt; \
+    } \
+    (*GetEA[ModRM])(); \
+    src = ReadByte(EA); \
+    ORB; \
+    I.regs.b[regByte] = (UINT8)dst; \
+    CLK(2); \
+} while (0)
+
+#define NEC_OP_80PRE(done_stmt) do { \
+    UINT32 dst, src; \
+    GetModRM; \
+    if (ModRM >= 0xc0) { \
+        const UINT32 rm = Mod_RM.RM.b[ModRM]; \
+        dst = I.regs.b[rm]; \
+        src = FETCH; \
+        CLK(1); \
+        switch (ModRM & 0x38) { \
+            case 0x00: ADDB;            I.regs.b[rm] = (UINT8)dst; break; \
+            case 0x08: ORB;             I.regs.b[rm] = (UINT8)dst; break; \
+            case 0x10: src += CF; ADDB; I.regs.b[rm] = (UINT8)dst; break; \
+            case 0x18: src += CF; SUBB; I.regs.b[rm] = (UINT8)dst; break; \
+            case 0x20: ANDB;            I.regs.b[rm] = (UINT8)dst; break; \
+            case 0x28: SUBB;            I.regs.b[rm] = (UINT8)dst; break; \
+            case 0x30: XORB;            I.regs.b[rm] = (UINT8)dst; break; \
+            case 0x38: SUBB;                                      break; \
+        } \
+        done_stmt; \
+    } \
+    (*GetEA[ModRM])(); \
+    dst = ReadByte(EA); \
+    src = FETCH; \
+    CLK(3); \
+    switch (ModRM & 0x38) { \
+        case 0x00: ADDB;            WriteByte(EA, (UINT8)dst); break; \
+        case 0x08: ORB;             WriteByte(EA, (UINT8)dst); break; \
+        case 0x10: src += CF; ADDB; WriteByte(EA, (UINT8)dst); break; \
+        case 0x18: src += CF; SUBB; WriteByte(EA, (UINT8)dst); break; \
+        case 0x20: ANDB;            WriteByte(EA, (UINT8)dst); break; \
+        case 0x28: SUBB;            WriteByte(EA, (UINT8)dst); break; \
+        case 0x30: XORB;            WriteByte(EA, (UINT8)dst); break; \
+        case 0x38: SUBB;                                      break; \
+    } \
+} while (0)
+
 #define NEC_OP_83PRE(done_stmt) do { \
     UINT32 dst, src; \
     GetModRM; \
@@ -418,6 +475,28 @@ static void nec_interrupt(unsigned int_num, BOOLEAN md_flag)
         done_stmt; \
     } \
     CLK(2); \
+} while (0)
+
+#define NEC_OP_FEPRE(done_stmt) do { \
+    UINT32 tmp, tmp1; \
+    GetModRM; \
+    if (ModRM >= 0xc0) { \
+        const UINT32 rm = Mod_RM.RM.b[ModRM]; \
+        tmp = I.regs.b[rm]; \
+        CLK(1); \
+        switch (ModRM & 0x38) { \
+            case 0x00: tmp1 = tmp + 1; I.OverVal = (tmp == 0x7f); SetAF(tmp1, tmp, 1); SetSZPF_Byte(tmp1); I.regs.b[rm] = (UINT8)tmp1; break; \
+            case 0x08: tmp1 = tmp - 1; I.OverVal = (tmp == 0x80); SetAF(tmp1, tmp, 1); SetSZPF_Byte(tmp1); I.regs.b[rm] = (UINT8)tmp1; break; \
+        } \
+        done_stmt; \
+    } \
+    (*GetEA[ModRM])(); \
+    tmp = ReadByte(EA); \
+    CLK(3); \
+    switch (ModRM & 0x38) { \
+        case 0x00: tmp1 = tmp + 1; I.OverVal = (tmp == 0x7f); SetAF(tmp1, tmp, 1); SetSZPF_Byte(tmp1); WriteByte(EA, (UINT8)tmp1); break; \
+        case 0x08: tmp1 = tmp - 1; I.OverVal = (tmp == 0x80); SetAF(tmp1, tmp, 1); SetSZPF_Byte(tmp1); WriteByte(EA, (UINT8)tmp1); break; \
+    } \
 } while (0)
 
 
@@ -1431,16 +1510,19 @@ NEC_CORE_CODE int nec_execute(int cycles)
         NEC_PROFILE_OP(op);
         switch(op) {
             case 0x03: NEC_OP_ADD_R16W(goto nec_dispatch_done); goto nec_dispatch_done;
+            case 0x0a: NEC_OP_OR_R8B(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x3b: NEC_OP_CMP_R16W(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x72: NEC_OP_JC(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x74: NEC_OP_JZ(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x75: NEC_OP_JNZ(goto nec_dispatch_done); goto nec_dispatch_done;
+            case 0x80: NEC_OP_80PRE(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x83: NEC_OP_83PRE(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x89: NEC_OP_MOV_WR16(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x8a: NEC_OP_MOV_R8B(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x8b: NEC_OP_MOV_R16W(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0xa1: NEC_OP_MOV_AXDISP(); goto nec_dispatch_done;
             case 0xe2: NEC_OP_LOOP(goto nec_dispatch_done); goto nec_dispatch_done;
+            case 0xfe: NEC_OP_FEPRE(goto nec_dispatch_done); goto nec_dispatch_done;
             default:
                 nec_instruction[op]();
                 break;
