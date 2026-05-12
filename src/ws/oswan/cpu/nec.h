@@ -93,12 +93,7 @@ NEC_ALWAYS_INLINE BYTE NecFastRead8(UINT32 A)
 	{
 		return cpu_readmem20(A);
 	}
-	const BYTE* p = Page[page];
-	if(!p || p == MemDummy)
-	{
-		return MemDummy[0];
-	}
-	return p[A & 0xffff];
+	return Page[page][A & 0xffff];
 }
 
 NEC_ALWAYS_INLINE UINT32 NecFastRead16(UINT32 A)
@@ -107,10 +102,6 @@ NEC_ALWAYS_INLINE UINT32 NecFastRead16(UINT32 A)
 	const UINT32 page = (A >> 16) & 0x0f;
 	if(page != 1 && off != 0xffff)
 	{
-		if(!Page[page] || Page[page] == MemDummy)
-		{
-			return (UINT32)MemDummy[0] | ((UINT32)MemDummy[0] << 8);
-		}
 		const BYTE* p = Page[page] + off;
 		return (UINT32)p[0] | ((UINT32)p[1] << 8);
 	}
@@ -172,10 +163,6 @@ NEC_ALWAYS_INLINE int NecCanDirectReadRange(UINT32 A, UINT32 bytes, const BYTE**
 	const UINT32 off = A & 0xffff;
 	const UINT32 page = (A >> 16) & 0x0f;
 	if(bytes == 0 || page == 1 || off + bytes > 0x10000u)
-	{
-		return 0;
-	}
-	if(!Page[page] || Page[page] == MemDummy)
 	{
 		return 0;
 	}

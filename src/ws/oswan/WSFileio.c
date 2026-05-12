@@ -391,12 +391,14 @@ int WsCreateFromMemory(const uint8_t *romData, size_t romSize)
     /* Possible ROM patches */
     WsRomPatch((BYTE*)footer);
 
-    /* Direct ROM XIP mapping */
-    for (i = 0; i < 256; ++i) ROMMap[i] = MemDummy;
-    for (i = 0; i < ROMBanks; ++i) {
-        int dst = 0x100 - ROMBanks + i; 
-        size_t ofs = ((size_t)i) << 16;          // i * 64K
-        ROMMap[dst] = (ofs < romSize) ? (BYTE*)(romData + ofs) : MemDummy;
+    /* Direct ROM XIP mapping. Hardware bank numbers commonly target the top
+       ROM window, but mirror lower selections too so direct fast reads never
+       index the 1-byte open-bus dummy as a 64KB page. */
+    const int baseBank = 0x100 - ROMBanks;
+    for (i = 0; i < 256; ++i) {
+        int bank = (i >= baseBank) ? (i - baseBank) : (i % ROMBanks);
+        size_t ofs = ((size_t)bank) << 16;       // bank * 64K
+        ROMMap[i] = (ofs < romSize) ? (BYTE*)(romData + ofs) : MemDummy;
     }
 
     /* Save memory. EEPROM does not map into page 1, so allocate only the
