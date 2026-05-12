@@ -77,6 +77,8 @@ void WsSramBackingFlush(void);
 int WsSramBackingActive(void);
 int WsSramBackingDirty(void);
 void WsSramBackingClearDirty(void);
+unsigned int WsSramBackingDirtyPages(void);
+void WsSramBackingClearDirtyPages(unsigned int mask);
 void WsRomPatch(BYTE *buf);
 int WsRun(void);
 #ifdef BENCHMARK_LOGS

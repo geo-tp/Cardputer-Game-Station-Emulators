@@ -18,7 +18,8 @@ extern int CartKind;
 extern int WsSramBackingActive(void);
 extern int WsSramBackingDirty(void);
 extern void WsSramBackingClearDirty(void);
-extern void WsSramBackingFlush(void);
+extern unsigned int WsSramBackingDirtyPages(void);
+extern void WsSramBackingClearDirtyPages(unsigned int mask);
 extern unsigned char WsSramBackingRead(int offset);
 extern void WsSramBackingWrite(int offset, unsigned char value);
 }
@@ -28,6 +29,7 @@ extern void WsSramBackingWrite(int offset, unsigned char value);
 #endif
 
 #define WS_SAVE_DIR "/sd/ws_saves"
+#define WS_SAVE_PAGE_SIZE 2048
 
 static uint8_t*     g_sram        = nullptr;   // pointer vers RAMMap
 static size_t       g_sram_len    = 0;         // = RAMSize
@@ -35,12 +37,7 @@ static bool         g_sram_backed = false;     // SD/cache backed SRAM fallback
 static char*        g_save_path   = nullptr;
 static uint32_t     g_crc_last    = 0;
 static TickType_t   g_next_check  = 0;
-static TickType_t   g_next_allow  = 0;
-static TaskHandle_t g_task        = nullptr;
-static volatile bool g_flag_flush = false;
-static volatile bool g_flag_check = false;
-static TickType_t g_first_dirty = 0;
-static TickType_t g_last_save   = 0;
+static bool         g_save_dirty  = false;
 
 // ====================== FS utils ======================
 static void ensure_dir(){ mkdir(WS_SAVE_DIR, 0777); }
@@ -67,17 +64,96 @@ static void make_save_path(const char* romPathOrName){
 }
 
 // ====================== I/O ======================
+static bool ensure_file_size(FILE* f, size_t len){
+  if (!f) return false;
+  if (fseek(f, 0, SEEK_END) != 0) return false;
+  long cur = ftell(f);
+  if (cur < 0) return false;
+  if ((size_t)cur >= len) return true;
+
+  const size_t CHUNK = 512;
+  uint8_t buf[CHUNK];
+  memset(buf, 0xFF, sizeof(buf));
+  size_t remaining = len - (size_t)cur;
+  while (remaining > 0) {
+    size_t n = remaining < CHUNK ? remaining : CHUNK;
+    if (fwrite(buf, 1, n, f) != n) return false;
+    remaining -= n;
+    taskYIELD();
+  }
+  return true;
+}
+
+static bool flush_backed_dirty_pages(){
+  unsigned int dirtyMask = WsSramBackingDirtyPages();
+  if (!dirtyMask && (WsSramBackingDirty() || g_save_dirty)) {
+    const unsigned int pages = (unsigned int)((g_sram_len + WS_SAVE_PAGE_SIZE - 1) / WS_SAVE_PAGE_SIZE);
+    dirtyMask = (pages >= 32) ? 0xFFFFFFFFu : ((1u << pages) - 1u);
+  }
+  if (!dirtyMask && !g_save_dirty) return true;
+
+  FILE* f = fopen(g_save_path, "r+b");
+  if (!f) f = fopen(g_save_path, "w+b");
+  if (!f) return false;
+  if (!ensure_file_size(f, g_sram_len)) {
+    fclose(f);
+    return false;
+  }
+
+  uint8_t buf[512];
+  unsigned int pagesWritten = 0;
+  size_t bytesWritten = 0;
+  const unsigned int pages = (unsigned int)((g_sram_len + WS_SAVE_PAGE_SIZE - 1) / WS_SAVE_PAGE_SIZE);
+  for (unsigned int page = 0; page < pages && page < 32; ++page) {
+    if ((dirtyMask & (1u << page)) == 0) continue;
+    size_t pageOffset = (size_t)page * WS_SAVE_PAGE_SIZE;
+    size_t pageLen = g_sram_len - pageOffset;
+    if (pageLen > WS_SAVE_PAGE_SIZE) pageLen = WS_SAVE_PAGE_SIZE;
+    if (fseek(f, (long)pageOffset, SEEK_SET) != 0) {
+      fclose(f);
+      return false;
+    }
+    size_t done = 0;
+    while (done < pageLen) {
+      size_t n = pageLen - done;
+      if (n > sizeof(buf)) n = sizeof(buf);
+      for (size_t i = 0; i < n; ++i) {
+        buf[i] = WsSramBackingRead((int)(pageOffset + done + i));
+      }
+      if (fwrite(buf, 1, n, f) != n) {
+        fclose(f);
+        EMU_LOG("[WS][SAVE] write error saving %s\n", g_save_path);
+        return false;
+      }
+      done += n;
+      bytesWritten += n;
+      taskYIELD();
+    }
+    pagesWritten++;
+  }
+
+  fflush(f);
+  fsync(fileno(f));
+  fclose(f);
+
+  WsSramBackingClearDirtyPages(dirtyMask);
+  g_save_dirty = WsSramBackingDirty() != 0;
+  EMU_LOG("[WS][SAVE] wrote %u dirty pages/%u bytes -> %s\n",
+         pagesWritten, (unsigned)bytesWritten, g_save_path);
+  return true;
+}
+
 static bool flush_now(){
   if ((!g_sram && !g_sram_backed) || !g_sram_len) return false;
   if (!share::gameSaveEnsureParentReady(WS_SAVE_DIR)) return false;
+  if (g_sram_backed) return flush_backed_dirty_pages();
+
+  uint32_t crc = share::gameSaveCrc32Update(0, g_sram, g_sram_len);
+  if (!g_save_dirty && crc == g_crc_last) return true;
   if (!g_sram_backed && share::gameSaveIsTrivialSram(g_sram, g_sram_len)) return false;
 
-  if (g_sram_backed) WsSramBackingFlush();
-
   FILE* f = fopen(g_save_path, "r+b");
-  if (!f && g_sram_backed) {
-    f = fopen(g_save_path, "wb");
-  }
+  if (!f) f = fopen(g_save_path, "w+b");
   if (!f) {
     return false;
   }
@@ -114,48 +190,9 @@ static bool flush_now(){
   EMU_LOG("[WS][SAVE] wrote %u bytes -> %s\n",
          (unsigned)g_sram_len, g_save_path);
 
-  if (g_sram_backed) WsSramBackingClearDirty();
+  g_crc_last = crc;
+  g_save_dirty = false;
   return true;
-}
-
-// ====================== Task ======================
-static void SaveTask(void*){
-  for(;;){
-    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(CHECK_MS));
-    bool do_check = g_flag_check; g_flag_check=false;
-    bool do_flush = g_flag_flush; g_flag_flush=false;
-    TickType_t now = xTaskGetTickCount();
-
-    if (do_check && g_sram_backed && g_sram_len) {
-      if (WsSramBackingDirty() && now >= g_next_allow) {
-        share::setGameIsSaving(true);
-        do_flush = true;
-      }
-    } else if (do_check && g_sram && g_sram_len){
-      uint32_t crc = share::gameSaveCrc32Update(0, g_sram, g_sram_len); // CRC zone utile
-      if (crc != g_crc_last && now >= g_next_allow){
-        g_crc_last = crc;
-        if (!share::gameSaveIsTrivialSram(g_sram, g_sram_len)) {
-          // SRAM modified
-          share::setGameIsSaving(true);
-          do_flush = true;
-        } else {
-          EMU_LOG("[WS][SAVE] trivial after change, skip\n");
-        }
-      }
-    }
-
-    if (do_flush && now >= g_next_allow){
-      bool ok = flush_now();
-      g_next_allow = xTaskGetTickCount() + pdMS_TO_TICKS(GAP_MS);
-      share::setGameIsSaving(false);
-      if (!ok) {
-        // Fail, force dirty
-        g_crc_last = 0xFFFFFFFFu;
-        EMU_LOG("[WS][SAVE] save failed, will retry on next tick\n");
-      }
-    }
-  }
 }
 
 // ====================== API ======================
@@ -182,8 +219,8 @@ void ws_save_init(const char* romPathOrName){
     g_sram_backed = false;
     g_sram_len  = 0;
     g_crc_last  = 0;
-    g_next_check = g_next_allow = 0;
-    g_first_dirty = g_last_save = 0;
+    g_next_check = 0;
+    g_save_dirty = false;
     return;
   }
 
@@ -195,8 +232,8 @@ void ws_save_init(const char* romPathOrName){
       g_sram_backed = false;
       g_sram_len  = 0;
       g_crc_last  = 0;
-      g_next_check = g_next_allow = 0;
-      g_first_dirty = g_last_save = 0;
+      g_next_check = 0;
+      g_save_dirty = false;
       return;
     }
   }
@@ -209,63 +246,11 @@ void ws_save_init(const char* romPathOrName){
   // Construit chemin
   make_save_path(romPathOrName);
 
-  if (share::gameSaveEnsureParentReady(WS_SAVE_DIR)) {
-    FILE* f = fopen(g_save_path, "rb");
-    if (!f) {
-      f = fopen(g_save_path, "wb");
-      if (f) {
-        const size_t CHUNK = 512;
-        uint8_t buf[CHUNK];
-        memset(buf, 0xFF, sizeof(buf));
-
-        size_t remaining = g_sram_len;
-        while (remaining > 0) {
-          size_t n = (remaining < CHUNK) ? remaining : CHUNK;
-          size_t w = fwrite(buf, 1, n, f);
-          if (w != n) {
-            EMU_LOG("[WS][SAVE] prealloc write error\n");
-            break;
-          }
-          remaining -= n;
-        }
-
-        fflush(f);
-        fsync(fileno(f));
-        fclose(f);
-
-        EMU_LOG("[WS][SAVE] preallocated save file %s (%u bytes)\n",
-               g_save_path, (unsigned)g_sram_len);
-      } else {
-        EMU_LOG("[WS][SAVE] failed to create save file: %s\n", g_save_path);
-      }
-    } else {
-      fclose(f);
-    }
-  } else {
-    EMU_LOG("[WS][SAVE] storage path not ready, will try later\n");
-  }
-
   // CRC initial
   g_crc_last    = g_sram_backed ? 0 : share::gameSaveCrc32Update(0, g_sram, g_sram_len);
   g_next_check  = 0;
-  g_next_allow  = 0;
-  g_first_dirty = 0;
-  g_last_save   = 0;
-  g_flag_check  = false;
-  g_flag_flush  = false;
+  g_save_dirty  = false;
   if (g_sram_backed) WsSramBackingClearDirty();
-
-  if (!g_task) {
-    xTaskCreatePinnedToCore(
-      SaveTask,
-      "WS_SaveTask",
-      3072,
-      nullptr,
-      6,
-      &g_task,
-      0
-    );
-  }
 
   EMU_LOG("[WS][SAVE] path=%s len=%u (%s)\n",
          g_save_path,
@@ -340,16 +325,36 @@ void ws_save_tick(void){
   TickType_t now = xTaskGetTickCount();
   if (now < g_next_check) return;
   g_next_check = now + pdMS_TO_TICKS(CHECK_MS);
-  g_flag_check = true;
-  if (g_task) xTaskNotifyGive(g_task);
+
+  if (g_sram_backed) {
+    if (WsSramBackingDirty()) g_save_dirty = true;
+    return;
+  }
+
+  uint32_t crc = share::gameSaveCrc32Update(0, g_sram, g_sram_len);
+  if (crc != g_crc_last && !share::gameSaveIsTrivialSram(g_sram, g_sram_len)) {
+    g_save_dirty = true;
+  }
 }
 
 void ws_save_request_flush(void){
   if (!g_sram && !g_sram_backed) return;
-  g_flag_flush = true;
-  if (g_task) xTaskNotifyGive(g_task);
+  g_save_dirty = true;
 }
 
 void ws_save_force_flush(void){
-  flush_now();
+  if (!g_sram && !g_sram_backed) return;
+  if (g_sram_backed && WsSramBackingDirty()) g_save_dirty = true;
+  if (!g_save_dirty && !g_sram_backed) {
+    uint32_t crc = share::gameSaveCrc32Update(0, g_sram, g_sram_len);
+    g_save_dirty = (crc != g_crc_last);
+  }
+  if (!g_save_dirty && !WsSramBackingDirty()) return;
+
+  share::setGameIsSaving(true);
+  bool ok = flush_now();
+  share::setGameIsSaving(false);
+  if (!ok) {
+    EMU_LOG("[WS][SAVE] final save failed, will retry if requested\n");
+  }
 }

@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include "ws_input.h"
 #include "share/input.h"
+#include "ws_save.h"
 
 extern bool ws_fullscreen;
 extern int  ws_zoomPercent;
@@ -13,6 +14,12 @@ extern "C" int ws_input_poll(int mode)
   M5Cardputer.update();
   Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
   uint16_t state = 0;
+  static bool quitFlushDone = false;
+
+  if (M5Cardputer.BtnA.pressedFor(1000) && !quitFlushDone) {
+    ws_save_force_flush();
+    quitFlushDone = true;
+  }
 
   share::checkCommonInput(status);
 

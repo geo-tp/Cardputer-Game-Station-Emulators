@@ -63,6 +63,7 @@ int WsSramBackingFastActive = 0;
 static int SramBackingBanks = 0;
 static int SramCurrentBank = 0;
 static int SramBackingDirty = 0;
+static unsigned int SramBackingDirtyPageMask = 0;
 static unsigned int SramCacheClock = 0;
 typedef struct SramCacheSlot {
     BYTE* data;
@@ -187,6 +188,7 @@ void WsSramBackingClose(void)
     SramBackingBanks = 0;
     SramCurrentBank = 0;
     SramBackingDirty = 0;
+    SramBackingDirtyPageMask = 0;
     SramCacheClock = 0;
     memset(SramCache, 0, sizeof(SramCache));
 }
@@ -228,6 +230,7 @@ void WsSramBackingInit(int banks)
     SramBackingBanks = banks;
     SramCurrentBank = 0;
     SramBackingDirty = 0;
+    SramBackingDirtyPageMask = 0;
     SramCacheClock = 0;
     WsSramBackingFastActive = 1;
 }
@@ -245,6 +248,21 @@ int WsSramBackingDirty(void)
 void WsSramBackingClearDirty(void)
 {
     SramBackingDirty = 0;
+    SramBackingDirtyPageMask = 0;
+}
+
+unsigned int WsSramBackingDirtyPages(void)
+{
+    return SramBackingDirtyPageMask;
+}
+
+void WsSramBackingClearDirtyPages(unsigned int mask)
+{
+    SramBackingDirtyPageMask &= ~mask;
+    if(SramBackingDirtyPageMask == 0)
+    {
+        SramBackingDirty = 0;
+    }
 }
 
 void WsSramBackingSelect(int bank)
@@ -313,6 +331,11 @@ void WsSramBackingWrite(int offset, BYTE value)
     SramCache[slot].data[offset & SRAM_CACHE_PAGE_MASK] = value;
     SramCache[slot].dirty = 1;
     SramBackingDirty = 1;
+    const unsigned int page = (unsigned int)((offset & 0xFFFF) >> SRAM_CACHE_PAGE_SHIFT);
+    if(page < 32)
+    {
+        SramBackingDirtyPageMask |= (1u << page);
+    }
     if(RAMMap[0] && RAMMap[0] != MemDummy)
     {
         RAMMap[0][offset & 0xFFFF] = value;
