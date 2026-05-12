@@ -590,8 +590,30 @@ OP( 0x86, i_xchg_br8  ) { DEF_br8;  RegByte(ModRM)=dst; PutbackRMByte(ModRM,src)
 OP( 0x87, i_xchg_wr16 ) { DEF_wr16; RegWord(ModRM)=dst; PutbackRMWord(ModRM,src); CLKM(5,3); }
 
 OP( 0x88, i_mov_br8   ) { UINT8  src; GetModRM; src = RegByte(ModRM);   PutRMByte(ModRM,src);   CLKM(1,1);          }
-OP( 0x89, i_mov_wr16  ) { UINT16 src; GetModRM; src = RegWord(ModRM);   PutRMWord(ModRM,src);   CLKM(1,1);  }
-OP( 0x8a, i_mov_r8b   ) { UINT8  src; GetModRM; src = GetRMByte(ModRM); RegByte(ModRM)=src;     CLKM(1,1);      }
+OP( 0x89, i_mov_wr16  ) { GetModRM;
+	const UINT32 reg = (ModRM >> 3) & 7;
+	if (ModRM >= 0xc0) {
+		I.regs.w[ModRM & 7] = I.regs.w[reg];
+		CLK(1);
+		return;
+	}
+	(*GetEA[ModRM])();
+	WriteWord(EA, I.regs.w[reg]);
+	CLK(1);
+}
+OP( 0x8a, i_mov_r8b   ) { GetModRM;
+	const UINT32 reg = (ModRM >> 3) & 7;
+	const UINT32 regByte = ((reg & 3) << 1) | (reg >> 2);
+	if (ModRM >= 0xc0) {
+		const UINT32 rm = ModRM & 7;
+		I.regs.b[regByte] = I.regs.b[((rm & 3) << 1) | (rm >> 2)];
+		CLK(1);
+		return;
+	}
+	(*GetEA[ModRM])();
+	I.regs.b[regByte] = (UINT8)ReadByte(EA);
+	CLK(1);
+}
 OP( 0x8b, i_mov_r16w  ) { GetModRM;
 	if (ModRM >= 0xc0) {
 		I.regs.w[(ModRM >> 3) & 7] = I.regs.w[ModRM & 7];
