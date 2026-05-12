@@ -140,7 +140,7 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
       if (coreStats.sramBankSwitches) {
         EMU_LOG("[WS][BENCH] sram bank switches=%u\n", coreStats.sramBankSwitches);
       }
-#ifdef WS_CPU_PROFILE
+#if defined(WS_CPU_PROFILE) || defined(WS_CPU_BRANCH_PROFILE)
       nec_profile_log_and_reset();
 #endif
       if (coreStats.spritePixels || coreStats.spriteLimitedLines || coreStats.spriteClipLeft || coreStats.spriteClipRight) {

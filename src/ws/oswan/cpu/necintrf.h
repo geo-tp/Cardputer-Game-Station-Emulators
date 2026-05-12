@@ -15,7 +15,7 @@ int nec_execute(int cycles);
 unsigned nec_get_reg(int regnum);
 void nec_reset (void *param);
 void nec_int(unsigned long wektor);
-#ifdef WS_CPU_PROFILE
+#if defined(WS_CPU_PROFILE) || defined(WS_CPU_BRANCH_PROFILE)
 void nec_profile_log_and_reset(void);
 #endif
 

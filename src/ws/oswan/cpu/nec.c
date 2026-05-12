@@ -120,19 +120,108 @@ static void nec_profile_print_top(const char* label, const UINT32* counts)
     printf("\n");
 }
 
-void nec_profile_log_and_reset(void)
-{
-    nec_profile_print_top("op", nec_profile_op);
-    nec_profile_print_top("rep", nec_profile_rep);
-    memset(nec_profile_op, 0, sizeof(nec_profile_op));
-    memset(nec_profile_rep, 0, sizeof(nec_profile_rep));
-}
-
 #define NEC_PROFILE_OP(op)  (nec_profile_op[(op) & 0xff]++)
 #define NEC_PROFILE_REP(op) (nec_profile_rep[(op) & 0xff]++)
 #else
 #define NEC_PROFILE_OP(op)  ((void)0)
 #define NEC_PROFILE_REP(op) ((void)0)
+#endif
+
+#ifdef WS_CPU_BRANCH_PROFILE
+typedef struct
+{
+    UINT16 cs;
+    UINT16 from;
+    UINT16 target;
+    UINT8 op;
+    UINT32 count;
+} nec_branch_profile_entry_t;
+
+static nec_branch_profile_entry_t nec_profile_branch[32];
+
+static void nec_profile_branch_taken(UINT8 op, UINT16 from, UINT16 target, int disp)
+{
+    if(disp >= 0)
+        return;
+
+    const UINT16 cs = I.sregs[CS];
+    UINT32 empty = 0xffffffffu;
+
+    for(UINT32 i = 0; i < 32; ++i)
+    {
+        nec_branch_profile_entry_t* entry = &nec_profile_branch[i];
+        if(entry->count == 0)
+        {
+            if(empty == 0xffffffffu)
+                empty = i;
+            continue;
+        }
+        if(entry->cs == cs && entry->from == from && entry->target == target && entry->op == op)
+        {
+            ++entry->count;
+            return;
+        }
+    }
+
+    if(empty != 0xffffffffu)
+    {
+        nec_profile_branch[empty].cs = cs;
+        nec_profile_branch[empty].from = from;
+        nec_profile_branch[empty].target = target;
+        nec_profile_branch[empty].op = op;
+        nec_profile_branch[empty].count = 1;
+    }
+}
+
+static void nec_profile_print_branches(void)
+{
+    UINT8 used[32] = {0};
+
+    for(UINT32 printed = 0; printed < 8; ++printed)
+    {
+        UINT32 best = 0xffffffffu;
+        UINT32 bestCount = 0;
+        for(UINT32 i = 0; i < 32; ++i)
+        {
+            if(!used[i] && nec_profile_branch[i].count > bestCount)
+            {
+                best = i;
+                bestCount = nec_profile_branch[i].count;
+            }
+        }
+        if(best == 0xffffffffu || bestCount == 0)
+            break;
+
+        used[best] = 1;
+        const nec_branch_profile_entry_t* entry = &nec_profile_branch[best];
+        const UINT32 targetBase = (((UINT32)entry->cs) << 4) + entry->target;
+        printf("[WS][CPU][BRANCH] %04X:%04X<-%04X op=%02X n=%u bytes=%02X %02X %02X %02X %02X %02X\n",
+               entry->cs, entry->target, entry->from, entry->op, entry->count,
+               PEEKOP(targetBase + 0), PEEKOP(targetBase + 1), PEEKOP(targetBase + 2),
+               PEEKOP(targetBase + 3), PEEKOP(targetBase + 4), PEEKOP(targetBase + 5));
+    }
+
+    memset(nec_profile_branch, 0, sizeof(nec_profile_branch));
+}
+
+#define NEC_PROFILE_BRANCH(op, from, target, disp) nec_profile_branch_taken((op), (from), (target), (disp))
+#else
+#define NEC_PROFILE_BRANCH(op, from, target, disp) ((void)0)
+#endif
+
+#if defined(WS_CPU_PROFILE) || defined(WS_CPU_BRANCH_PROFILE)
+void nec_profile_log_and_reset(void)
+{
+#ifdef WS_CPU_PROFILE
+    nec_profile_print_top("op", nec_profile_op);
+    nec_profile_print_top("rep", nec_profile_rep);
+    memset(nec_profile_op, 0, sizeof(nec_profile_op));
+    memset(nec_profile_rep, 0, sizeof(nec_profile_rep));
+#endif
+#ifdef WS_CPU_BRANCH_PROFILE
+    nec_profile_print_branches();
+#endif
+}
 #endif
 
 
@@ -285,7 +374,9 @@ static void nec_interrupt(unsigned int_num, BOOLEAN md_flag)
 #define NEC_OP_JC(done_stmt) do { \
     int tmp = (int)((INT8)FETCH); \
     if (CF) { \
+        const UINT16 branchFrom = (UINT16)(I.ip - 2); \
         I.ip = (WORD)(I.ip + tmp); \
+        NEC_PROFILE_BRANCH(0x72, branchFrom, I.ip, tmp); \
         nec_ICount -= 3; \
         done_stmt; \
     } \
@@ -295,7 +386,9 @@ static void nec_interrupt(unsigned int_num, BOOLEAN md_flag)
 #define NEC_OP_JZ(done_stmt) do { \
     int tmp = (int)((INT8)FETCH); \
     if (__builtin_expect(I.ZeroVal == 0, 1)) { \
+        const UINT16 branchFrom = (UINT16)(I.ip - 2); \
         I.ip = (WORD)(I.ip + tmp); \
+        NEC_PROFILE_BRANCH(0x74, branchFrom, I.ip, tmp); \
         nec_ICount -= 3; \
         done_stmt; \
     } \
@@ -305,7 +398,9 @@ static void nec_interrupt(unsigned int_num, BOOLEAN md_flag)
 #define NEC_OP_JNZ(done_stmt) do { \
     int tmp = (int)((INT8)FETCH); \
     if (__builtin_expect(I.ZeroVal != 0, 1)) { \
+        const UINT16 branchFrom = (UINT16)(I.ip - 2); \
         I.ip = (WORD)(I.ip + tmp); \
+        NEC_PROFILE_BRANCH(0x75, branchFrom, I.ip, tmp); \
         nec_ICount -= 3; \
         done_stmt; \
     } \
