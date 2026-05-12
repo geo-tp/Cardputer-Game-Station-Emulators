@@ -583,6 +583,21 @@ OP( 0x82, i_82pre   ) { UINT32 dst, src; GetModRM; dst = GetRMByte(ModRM); src =
 }
 
 OP( 0x83, i_83pre   ) { UINT32 dst, src; GetModRM;
+    if (__builtin_expect((ModRM & 0x38) == 0x38, 1)) {
+        if (ModRM >= 0xc0) {
+            dst = I.regs.w[ModRM & 7];
+            src = (WORD)((INT16)((INT8)FETCH));
+            SUBW;
+            CLK(1);
+            return;
+        }
+        (*GetEA[ModRM])();
+        dst = ReadWord(EA);
+        src = (WORD)((INT16)((INT8)FETCH));
+        SUBW;
+        CLK(3);
+        return;
+    }
     if (ModRM >= 0xc0) {
         const UINT32 rm = ModRM & 7;
         dst = I.regs.w[rm];
