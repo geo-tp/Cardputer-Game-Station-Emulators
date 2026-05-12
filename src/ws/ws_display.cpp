@@ -26,6 +26,7 @@ static const int kStride = SCREEN_WIDTH;
 // -----------------------------------------------------------------------------
 static const int kDstW = 240;
 static const int kDstH = 135;
+static const int kChunkLines = 8;
 
 // -----------------------------------------------------------------------------
 // Threading
@@ -39,7 +40,7 @@ bool      ws_fullscreen     = true;
 int       ws_zoomPercent    = 100;    // ROI zoom 
 static int lastZoomPercent = -1;
 
-static uint16_t* s_line16 = nullptr;  // ligne dest
+static uint16_t* s_chunk16 = nullptr; // chunk dest
 static uint8_t*  s_xmap   = nullptr;  // map X (dstW -> srcX)
 static uint8_t*  s_ymap   = nullptr;  // map Y (dstH -> srcY)
 static int s_dstW = kDstW, s_dstH = kDstH;
@@ -55,15 +56,15 @@ static volatile uint32_t s_statPendingNotifications = 0;
 // Utils
 // -----------------------------------------------------------------------------
 static void ws_display_free_buffers() {
-  if (s_line16) { free(s_line16); s_line16 = nullptr; }
+  if (s_chunk16) { free(s_chunk16); s_chunk16 = nullptr; }
   if (s_xmap)   { free(s_xmap);   s_xmap   = nullptr; }
   if (s_ymap)   { free(s_ymap);   s_ymap   = nullptr; }
 }
 
 static void ws_display_alloc_buffers() {
-  if (!s_line16) {
-    s_line16 = (uint16_t*) heap_caps_malloc(kDstW * sizeof(uint16_t),
-                                            MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+  if (!s_chunk16) {
+    s_chunk16 = (uint16_t*) heap_caps_malloc(kDstW * kChunkLines * sizeof(uint16_t),
+                                             MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
   }
   if (!s_xmap) {
     s_xmap = (uint8_t*) heap_caps_malloc(kDstW * sizeof(uint8_t),
@@ -117,7 +118,7 @@ static void ws_display_compute_scaler() {
 static inline void ws_render_one_frame()
 {
   const uint16_t* fb = (const uint16_t*) FrameBuffer;
-  if (!fb || !s_line16 || !s_xmap || !s_ymap) return;
+  if (!fb || !s_chunk16 || !s_xmap || !s_ymap) return;
 
   // if zoom has changed, recompute scaler
   if (ws_zoomPercent != lastZoomPercent) {
@@ -126,36 +127,33 @@ static inline void ws_render_one_frame()
   }
 
   M5Cardputer.Display.startWrite();
-  M5Cardputer.Display.setAddrWindow(s_offX, s_offY, s_dstW, s_dstH);
 
-  int last_sy = -1;
+  for (int y0 = 0; y0 < s_dstH; y0 += kChunkLines) {
+    const int lines = std::min(kChunkLines, s_dstH - y0);
 
-  for (int dy = 0; dy < s_dstH; ++dy) {
-    const int sy = s_ymap[dy];
-    const uint16_t* srcLine = fb + sy * kStride;
+    for (int cy = 0; cy < lines; ++cy) {
+      const int sy = s_ymap[y0 + cy];
+      const uint16_t* srcLine = fb + sy * kStride;
+      uint16_t* dstLine = s_chunk16 + cy * s_dstW;
 
-    // construct line
-    if (sy != last_sy) {
       int dx = 0;
-      // unroll x8
       for (; dx + 8 <= s_dstW; dx += 8) {
-        s_line16[dx + 0] = srcLine[s_xmap[dx + 0]];
-        s_line16[dx + 1] = srcLine[s_xmap[dx + 1]];
-        s_line16[dx + 2] = srcLine[s_xmap[dx + 2]];
-        s_line16[dx + 3] = srcLine[s_xmap[dx + 3]];
-        s_line16[dx + 4] = srcLine[s_xmap[dx + 4]];
-        s_line16[dx + 5] = srcLine[s_xmap[dx + 5]];
-        s_line16[dx + 6] = srcLine[s_xmap[dx + 6]];
-        s_line16[dx + 7] = srcLine[s_xmap[dx + 7]];
+        dstLine[dx + 0] = srcLine[s_xmap[dx + 0]];
+        dstLine[dx + 1] = srcLine[s_xmap[dx + 1]];
+        dstLine[dx + 2] = srcLine[s_xmap[dx + 2]];
+        dstLine[dx + 3] = srcLine[s_xmap[dx + 3]];
+        dstLine[dx + 4] = srcLine[s_xmap[dx + 4]];
+        dstLine[dx + 5] = srcLine[s_xmap[dx + 5]];
+        dstLine[dx + 6] = srcLine[s_xmap[dx + 6]];
+        dstLine[dx + 7] = srcLine[s_xmap[dx + 7]];
       }
       for (; dx < s_dstW; ++dx) {
-        s_line16[dx] = srcLine[s_xmap[dx]];
+        dstLine[dx] = srcLine[s_xmap[dx]];
       }
-      last_sy = sy;
     }
 
-    // push line
-    M5Cardputer.Display.writePixels(s_line16, s_dstW, true);
+    M5Cardputer.Display.setAddrWindow(s_offX, s_offY + y0, s_dstW, lines);
+    M5Cardputer.Display.writePixels(s_chunk16, s_dstW * lines, true);
   }
 
   M5Cardputer.Display.endWrite();
