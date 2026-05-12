@@ -498,7 +498,7 @@ OP( 0x71, i_jno     ) { JMP(!OF);               CLK(1); }
 OP( 0x72, i_jc      ) { JMP( CF);               CLK(1); }
 OP( 0x73, i_jnc     ) { JMP(!CF);               CLK(1); }
 OP( 0x74, i_jz      ) { JMP( ZF);               CLK(1); }
-OP( 0x75, i_jnz     ) { JMP(!ZF);               CLK(1); }
+OP( 0x75, i_jnz     ) { int tmp = (int)((INT8)FETCH); if (__builtin_expect(I.ZeroVal != 0, 1)) { I.ip = (WORD)(I.ip + tmp); nec_ICount -= 3; return; } CLK(1); }
 OP( 0x76, i_jce     ) { JMP(CF || ZF);          CLK(1); }
 OP( 0x77, i_jnce    ) { JMP(!(CF || ZF));       CLK(1); }
 OP( 0x78, i_js      ) { JMP( SF);               CLK(1); }
