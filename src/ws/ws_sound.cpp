@@ -10,7 +10,7 @@ extern "C" {
 
 static constexpr int kNativeSampleRate = 24000;
 static int           g_sample_rate = kNativeSampleRate;
-static constexpr int kDefaultPeriodMs = 8;
+static constexpr int kDefaultPeriodMs = 13;
 static int           g_chunk       = 0; 
 static constexpr int kChannel      = 0;
 static constexpr int kMaxChunk     = 320;
