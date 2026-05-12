@@ -250,7 +250,23 @@ static void nec_interrupt(unsigned int_num, BOOLEAN md_flag)
 OP( 0x00, i_add_br8  ) { DEF_br8;   ADDB;   PutbackRMByte(ModRM,dst);   CLKM(3,1);      }
 OP( 0x01, i_add_wr16 ) { DEF_wr16;  ADDW;   PutbackRMWord(ModRM,dst);   CLKM(3,1);  }
 OP( 0x02, i_add_r8b  ) { DEF_r8b;   ADDB;   RegByte(ModRM)=dst;         CLKM(2,1);      }
-OP( 0x03, i_add_r16w ) { DEF_r16w;  ADDW;   RegWord(ModRM)=dst;         CLKM(2,1);  }
+OP( 0x03, i_add_r16w ) { GetModRM;
+	const UINT32 reg = (ModRM >> 3) & 7;
+	UINT32 dst = I.regs.w[reg];
+	UINT32 src;
+	if (ModRM >= 0xc0) {
+		src = I.regs.w[ModRM & 7];
+		ADDW;
+		I.regs.w[reg] = (WORD)dst;
+		CLK(1);
+		return;
+	}
+	(*GetEA[ModRM])();
+	src = ReadWord(EA);
+	ADDW;
+	I.regs.w[reg] = (WORD)dst;
+	CLK(2);
+}
 OP( 0x04, i_add_ald8 ) { DEF_ald8;  ADDB;   I.regs.b[AL]=dst;           CLK(1);             }
 OP( 0x05, i_add_axd16) { DEF_axd16; ADDW;   I.regs.w[AW]=dst;           CLK(1);             }
 OP( 0x06, i_push_es  ) { PUSH(I.sregs[ES]); CLK(2);     }
