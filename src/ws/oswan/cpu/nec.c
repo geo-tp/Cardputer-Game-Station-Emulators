@@ -362,7 +362,21 @@ OP( 0x37, i_aaa      ) { ADJB(6,1);                                     CLK(9); 
 OP( 0x38, i_cmp_br8  ) { DEF_br8;   SUBB;                   CLKM(2,1); }
 OP( 0x39, i_cmp_wr16 ) { DEF_wr16;  SUBW;                   CLKM(2,1);  }
 OP( 0x3a, i_cmp_r8b  ) { DEF_r8b;   SUBB;                   CLKM(2,1); }
-OP( 0x3b, i_cmp_r16w ) { DEF_r16w;  SUBW;                   CLKM(2,1);  }
+OP( 0x3b, i_cmp_r16w ) { GetModRM;
+	const UINT32 reg = (ModRM >> 3) & 7;
+	UINT32 dst = I.regs.w[reg];
+	UINT32 src;
+	if (ModRM >= 0xc0) {
+		src = I.regs.w[ModRM & 7];
+		SUBW;
+		CLK(1);
+		return;
+	}
+	(*GetEA[ModRM])();
+	src = ReadWord(EA);
+	SUBW;
+	CLK(2);
+}
 OP( 0x3c, i_cmp_ald8 ) { DEF_ald8;  SUBB;                   CLK(1); }
 OP( 0x3d, i_cmp_axd16) { DEF_axd16; SUBW;                   CLK(1); }
 OP( 0x3e, i_ds       ) { seg_prefix=TRUE;   prefix_base=seg_base[DS]; CLK(1);     nec_instruction[FETCHOP](); seg_prefix=FALSE; }
