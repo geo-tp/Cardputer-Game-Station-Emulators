@@ -553,11 +553,21 @@ OP( 0x82, i_82pre   ) { UINT32 dst, src; GetModRM; dst = GetRMByte(ModRM); src =
 }
 
 OP( 0x83, i_83pre   ) { UINT32 dst, src; GetModRM;
-    if (ModRM >= 0xc0 && (ModRM & 0x38) == 0x38) {
-        dst = I.regs.w[ModRM & 7];
+    if (ModRM >= 0xc0) {
+        const UINT32 rm = ModRM & 7;
+        dst = I.regs.w[rm];
         src = (WORD)((INT16)((INT8)FETCH));
-        SUBW;
         CLK(1);
+        switch (ModRM & 0x38) {
+            case 0x00: ADDW;            I.regs.w[rm] = dst; break;
+            case 0x08: ORW;             I.regs.w[rm] = dst; break;
+            case 0x10: src += CF; ADDW; I.regs.w[rm] = dst; break;
+            case 0x18: src += CF; SUBW; I.regs.w[rm] = dst; break;
+            case 0x20: ANDW;            I.regs.w[rm] = dst; break;
+            case 0x28: SUBW;            I.regs.w[rm] = dst; break;
+            case 0x30: XORW;            I.regs.w[rm] = dst; break;
+            case 0x38: SUBW;                           break;
+        }
         return;
     }
     dst = GetRMWord(ModRM); src = (WORD)((INT16)((INT8)FETCH));
