@@ -246,27 +246,164 @@ static void nec_interrupt(unsigned int_num, BOOLEAN md_flag)
 
 #define OP(num,func_name) static NEC_CORE_CODE void func_name(void)
 
+#define NEC_OP_ADD_R16W(done_stmt) do { \
+    GetModRM; \
+    const UINT32 reg = (ModRM >> 3) & 7; \
+    UINT32 dst = I.regs.w[reg]; \
+    UINT32 src; \
+    if (ModRM >= 0xc0) { \
+        src = I.regs.w[ModRM & 7]; \
+        ADDW; \
+        I.regs.w[reg] = (WORD)dst; \
+        CLK(1); \
+        done_stmt; \
+    } \
+    (*GetEA[ModRM])(); \
+    src = ReadWord(EA); \
+    ADDW; \
+    I.regs.w[reg] = (WORD)dst; \
+    CLK(2); \
+} while (0)
+
+#define NEC_OP_CMP_R16W(done_stmt) do { \
+    GetModRM; \
+    const UINT32 reg = (ModRM >> 3) & 7; \
+    UINT32 dst = I.regs.w[reg]; \
+    UINT32 src; \
+    if (ModRM >= 0xc0) { \
+        src = I.regs.w[ModRM & 7]; \
+        SUBW; \
+        CLK(1); \
+        done_stmt; \
+    } \
+    (*GetEA[ModRM])(); \
+    src = ReadWord(EA); \
+    SUBW; \
+    CLK(2); \
+} while (0)
+
+#define NEC_OP_JC(done_stmt) do { \
+    int tmp = (int)((INT8)FETCH); \
+    if (CF) { \
+        I.ip = (WORD)(I.ip + tmp); \
+        nec_ICount -= 3; \
+        done_stmt; \
+    } \
+    CLK(1); \
+} while (0)
+
+#define NEC_OP_JNZ(done_stmt) do { \
+    int tmp = (int)((INT8)FETCH); \
+    if (__builtin_expect(I.ZeroVal != 0, 1)) { \
+        I.ip = (WORD)(I.ip + tmp); \
+        nec_ICount -= 3; \
+        done_stmt; \
+    } \
+    CLK(1); \
+} while (0)
+
+#define NEC_OP_83PRE(done_stmt) do { \
+    UINT32 dst, src; \
+    GetModRM; \
+    if (__builtin_expect((ModRM & 0x38) == 0x38, 1)) { \
+        if (ModRM >= 0xc0) { \
+            dst = I.regs.w[ModRM & 7]; \
+            src = (WORD)((INT16)((INT8)FETCH)); \
+            SUBW; \
+            CLK(1); \
+            done_stmt; \
+        } \
+        (*GetEA[ModRM])(); \
+        dst = ReadWord(EA); \
+        src = (WORD)((INT16)((INT8)FETCH)); \
+        SUBW; \
+        CLK(3); \
+        done_stmt; \
+    } \
+    if (ModRM >= 0xc0) { \
+        const UINT32 rm = ModRM & 7; \
+        dst = I.regs.w[rm]; \
+        src = (WORD)((INT16)((INT8)FETCH)); \
+        CLK(1); \
+        switch (ModRM & 0x38) { \
+            case 0x00: ADDW;            I.regs.w[rm] = dst; break; \
+            case 0x08: ORW;             I.regs.w[rm] = dst; break; \
+            case 0x10: src += CF; ADDW; I.regs.w[rm] = dst; break; \
+            case 0x18: src += CF; SUBW; I.regs.w[rm] = dst; break; \
+            case 0x20: ANDW;            I.regs.w[rm] = dst; break; \
+            case 0x28: SUBW;            I.regs.w[rm] = dst; break; \
+            case 0x30: XORW;            I.regs.w[rm] = dst; break; \
+            case 0x38: SUBW;                           break; \
+        } \
+        done_stmt; \
+    } \
+    dst = GetRMWord(ModRM); \
+    src = (WORD)((INT16)((INT8)FETCH)); \
+    CLKM(3,1); \
+    switch (ModRM & 0x38) { \
+        case 0x00: ADDW;            PutbackRMWord(ModRM,dst);   break; \
+        case 0x08: ORW;             PutbackRMWord(ModRM,dst);   break; \
+        case 0x10: src+=CF; ADDW;   PutbackRMWord(ModRM,dst);   break; \
+        case 0x18: src+=CF; SUBW;   PutbackRMWord(ModRM,dst);   break; \
+        case 0x20: ANDW;            PutbackRMWord(ModRM,dst);   break; \
+        case 0x28: SUBW;            PutbackRMWord(ModRM,dst);   break; \
+        case 0x30: XORW;            PutbackRMWord(ModRM,dst);   break; \
+        case 0x38: SUBW;            break; \
+    } \
+} while (0)
+
+#define NEC_OP_MOV_WR16(done_stmt) do { \
+    GetModRM; \
+    const UINT32 reg = (ModRM >> 3) & 7; \
+    if (ModRM >= 0xc0) { \
+        I.regs.w[ModRM & 7] = I.regs.w[reg]; \
+        CLK(1); \
+        done_stmt; \
+    } \
+    (*GetEA[ModRM])(); \
+    WriteWord(EA, I.regs.w[reg]); \
+    CLK(1); \
+} while (0)
+
+#define NEC_OP_MOV_R8B(done_stmt) do { \
+    GetModRM; \
+    const UINT32 reg = (ModRM >> 3) & 7; \
+    const UINT32 regByte = ((reg & 3) << 1) | (reg >> 2); \
+    if (ModRM >= 0xc0) { \
+        const UINT32 rm = ModRM & 7; \
+        I.regs.b[regByte] = I.regs.b[((rm & 3) << 1) | (rm >> 2)]; \
+        CLK(1); \
+        done_stmt; \
+    } \
+    (*GetEA[ModRM])(); \
+    I.regs.b[regByte] = (UINT8)ReadByte(EA); \
+    CLK(1); \
+} while (0)
+
+#define NEC_OP_MOV_R16W(done_stmt) do { \
+    GetModRM; \
+    if (ModRM >= 0xc0) { \
+        I.regs.w[(ModRM >> 3) & 7] = I.regs.w[ModRM & 7]; \
+        CLK(1); \
+        done_stmt; \
+    } \
+    (*GetEA[ModRM])(); \
+    I.regs.w[(ModRM >> 3) & 7] = (UINT16)ReadWord(EA); \
+    CLK(1); \
+} while (0)
+
+#define NEC_OP_MOV_AXDISP() do { \
+    UINT32 addr; \
+    FETCHWORD(addr); \
+    I.regs.w[AW] = GetMemW(DS, addr); \
+    CLK(1); \
+} while (0)
+
 
 OP( 0x00, i_add_br8  ) { DEF_br8;   ADDB;   PutbackRMByte(ModRM,dst);   CLKM(3,1);      }
 OP( 0x01, i_add_wr16 ) { DEF_wr16;  ADDW;   PutbackRMWord(ModRM,dst);   CLKM(3,1);  }
 OP( 0x02, i_add_r8b  ) { DEF_r8b;   ADDB;   RegByte(ModRM)=dst;         CLKM(2,1);      }
-OP( 0x03, i_add_r16w ) { GetModRM;
-	const UINT32 reg = (ModRM >> 3) & 7;
-	UINT32 dst = I.regs.w[reg];
-	UINT32 src;
-	if (ModRM >= 0xc0) {
-		src = I.regs.w[ModRM & 7];
-		ADDW;
-		I.regs.w[reg] = (WORD)dst;
-		CLK(1);
-		return;
-	}
-	(*GetEA[ModRM])();
-	src = ReadWord(EA);
-	ADDW;
-	I.regs.w[reg] = (WORD)dst;
-	CLK(2);
-}
+OP( 0x03, i_add_r16w ) { NEC_OP_ADD_R16W(return); }
 OP( 0x04, i_add_ald8 ) { DEF_ald8;  ADDB;   I.regs.b[AL]=dst;           CLK(1);             }
 OP( 0x05, i_add_axd16) { DEF_axd16; ADDW;   I.regs.w[AW]=dst;           CLK(1);             }
 OP( 0x06, i_push_es  ) { PUSH(I.sregs[ES]); CLK(2);     }
@@ -525,10 +662,10 @@ OP( 0x6f, i_outsw    ) { write_port(I.regs.w[DW],GetMemB(DS,I.regs.w[IX])); writ
 
 OP( 0x70, i_jo      ) { JMP( OF);               CLK(1); }
 OP( 0x71, i_jno     ) { JMP(!OF);               CLK(1); }
-OP( 0x72, i_jc      ) { JMP( CF);               CLK(1); }
+OP( 0x72, i_jc      ) { NEC_OP_JC(return); }
 OP( 0x73, i_jnc     ) { JMP(!CF);               CLK(1); }
 OP( 0x74, i_jz      ) { JMP( ZF);               CLK(1); }
-OP( 0x75, i_jnz     ) { int tmp = (int)((INT8)FETCH); if (__builtin_expect(I.ZeroVal != 0, 1)) { I.ip = (WORD)(I.ip + tmp); nec_ICount -= 3; return; } CLK(1); }
+OP( 0x75, i_jnz     ) { NEC_OP_JNZ(return); }
 OP( 0x76, i_jce     ) { JMP(CF || ZF);          CLK(1); }
 OP( 0x77, i_jnce    ) { JMP(!(CF || ZF));       CLK(1); }
 OP( 0x78, i_js      ) { JMP( SF);               CLK(1); }
@@ -582,52 +719,7 @@ OP( 0x82, i_82pre   ) { UINT32 dst, src; GetModRM; dst = GetRMByte(ModRM); src =
     }
 }
 
-OP( 0x83, i_83pre   ) { UINT32 dst, src; GetModRM;
-    if (__builtin_expect((ModRM & 0x38) == 0x38, 1)) {
-        if (ModRM >= 0xc0) {
-            dst = I.regs.w[ModRM & 7];
-            src = (WORD)((INT16)((INT8)FETCH));
-            SUBW;
-            CLK(1);
-            return;
-        }
-        (*GetEA[ModRM])();
-        dst = ReadWord(EA);
-        src = (WORD)((INT16)((INT8)FETCH));
-        SUBW;
-        CLK(3);
-        return;
-    }
-    if (ModRM >= 0xc0) {
-        const UINT32 rm = ModRM & 7;
-        dst = I.regs.w[rm];
-        src = (WORD)((INT16)((INT8)FETCH));
-        CLK(1);
-        switch (ModRM & 0x38) {
-            case 0x00: ADDW;            I.regs.w[rm] = dst; break;
-            case 0x08: ORW;             I.regs.w[rm] = dst; break;
-            case 0x10: src += CF; ADDW; I.regs.w[rm] = dst; break;
-            case 0x18: src += CF; SUBW; I.regs.w[rm] = dst; break;
-            case 0x20: ANDW;            I.regs.w[rm] = dst; break;
-            case 0x28: SUBW;            I.regs.w[rm] = dst; break;
-            case 0x30: XORW;            I.regs.w[rm] = dst; break;
-            case 0x38: SUBW;                           break;
-        }
-        return;
-    }
-    dst = GetRMWord(ModRM); src = (WORD)((INT16)((INT8)FETCH));
-    CLKM(3,1)
-    switch (ModRM & 0x38) {
-        case 0x00: ADDW;            PutbackRMWord(ModRM,dst);   break;
-        case 0x08: ORW;             PutbackRMWord(ModRM,dst);   break;
-        case 0x10: src+=CF; ADDW;   PutbackRMWord(ModRM,dst);   break;
-        case 0x18: src+=CF; SUBW;   PutbackRMWord(ModRM,dst);   break;
-        case 0x20: ANDW;            PutbackRMWord(ModRM,dst);   break;
-        case 0x28: SUBW;            PutbackRMWord(ModRM,dst);   break;
-        case 0x30: XORW;            PutbackRMWord(ModRM,dst);   break;
-        case 0x38: SUBW;            break;  /* CMP */
-    }
-}
+OP( 0x83, i_83pre   ) { NEC_OP_83PRE(return); }
 
 OP( 0x84, i_test_br8  ) { DEF_br8;  ANDB;   CLKM(2,1);      }
 OP( 0x85, i_test_wr16 ) { DEF_wr16; ANDW;   CLKM(2,1);  }
@@ -635,40 +727,9 @@ OP( 0x86, i_xchg_br8  ) { DEF_br8;  RegByte(ModRM)=dst; PutbackRMByte(ModRM,src)
 OP( 0x87, i_xchg_wr16 ) { DEF_wr16; RegWord(ModRM)=dst; PutbackRMWord(ModRM,src); CLKM(5,3); }
 
 OP( 0x88, i_mov_br8   ) { UINT8  src; GetModRM; src = RegByte(ModRM);   PutRMByte(ModRM,src);   CLKM(1,1);          }
-OP( 0x89, i_mov_wr16  ) { GetModRM;
-	const UINT32 reg = (ModRM >> 3) & 7;
-	if (ModRM >= 0xc0) {
-		I.regs.w[ModRM & 7] = I.regs.w[reg];
-		CLK(1);
-		return;
-	}
-	(*GetEA[ModRM])();
-	WriteWord(EA, I.regs.w[reg]);
-	CLK(1);
-}
-OP( 0x8a, i_mov_r8b   ) { GetModRM;
-	const UINT32 reg = (ModRM >> 3) & 7;
-	const UINT32 regByte = ((reg & 3) << 1) | (reg >> 2);
-	if (ModRM >= 0xc0) {
-		const UINT32 rm = ModRM & 7;
-		I.regs.b[regByte] = I.regs.b[((rm & 3) << 1) | (rm >> 2)];
-		CLK(1);
-		return;
-	}
-	(*GetEA[ModRM])();
-	I.regs.b[regByte] = (UINT8)ReadByte(EA);
-	CLK(1);
-}
-OP( 0x8b, i_mov_r16w  ) { GetModRM;
-	if (ModRM >= 0xc0) {
-		I.regs.w[(ModRM >> 3) & 7] = I.regs.w[ModRM & 7];
-		CLK(1);
-		return;
-	}
-	(*GetEA[ModRM])();
-	I.regs.w[(ModRM >> 3) & 7] = (UINT16)ReadWord(EA);
-	CLK(1);
-}
+OP( 0x89, i_mov_wr16  ) { NEC_OP_MOV_WR16(return); }
+OP( 0x8a, i_mov_r8b   ) { NEC_OP_MOV_R8B(return); }
+OP( 0x8b, i_mov_r16w  ) { NEC_OP_MOV_R16W(return); }
 OP( 0x8c, i_mov_wsreg ) { GetModRM; PutRMWord(ModRM,I.sregs[(ModRM & 0x38) >> 3]);              CLKM(1,1); }
 OP( 0x8d, i_lea       ) { UINT16 ModRM = FETCH; (void)(*GetEA[ModRM])(); RegWord(ModRM)=EO;     CLK(1); }
 OP( 0x8e, i_mov_sregw ) { UINT16 src; GetModRM; src = GetRMWord(ModRM); CLKM(3,2);
@@ -705,7 +766,7 @@ OP( 0x9e, i_sahf      ) { UINT32 tmp = (CompressFlags() & 0xff00) | (I.regs.b[AH
 OP( 0x9f, i_lahf      ) { I.regs.b[AH] = CompressFlags() & 0xff; CLK(2); }
 
 OP( 0xa0, i_mov_aldisp ) { UINT32 addr; FETCHWORD(addr); I.regs.b[AL] = GetMemB(DS, addr); CLK(1); }
-OP( 0xa1, i_mov_axdisp ) { UINT32 addr; FETCHWORD(addr); I.regs.w[AW] = GetMemW(DS, addr); CLK(1); }
+OP( 0xa1, i_mov_axdisp ) { NEC_OP_MOV_AXDISP(); }
 OP( 0xa2, i_mov_dispal ) { UINT32 addr; FETCHWORD(addr); PutMemB(DS, addr, I.regs.b[AL]);  CLK(1); }
 OP( 0xa3, i_mov_dispax ) { UINT32 addr; FETCHWORD(addr); PutMemW(DS, addr, I.regs.w[AW]); CLK(1); }
 OP( 0xa4, i_movsb      ) { UINT32 tmp = GetMemB(DS,I.regs.w[IX]); PutMemB(ES,I.regs.w[IY], tmp); I.regs.w[IY] += -2 * I.DF + 1; I.regs.w[IX] += -2 * I.DF + 1; CLK(5); }
@@ -1347,7 +1408,21 @@ NEC_CORE_CODE int nec_execute(int cycles)
 
         UINT32 op = FETCHOP;
         NEC_PROFILE_OP(op);
-        nec_instruction[op]();
+        switch(op) {
+            case 0x03: NEC_OP_ADD_R16W(goto nec_dispatch_done); goto nec_dispatch_done;
+            case 0x3b: NEC_OP_CMP_R16W(goto nec_dispatch_done); goto nec_dispatch_done;
+            case 0x72: NEC_OP_JC(goto nec_dispatch_done); goto nec_dispatch_done;
+            case 0x75: NEC_OP_JNZ(goto nec_dispatch_done); goto nec_dispatch_done;
+            case 0x83: NEC_OP_83PRE(goto nec_dispatch_done); goto nec_dispatch_done;
+            case 0x89: NEC_OP_MOV_WR16(goto nec_dispatch_done); goto nec_dispatch_done;
+            case 0x8a: NEC_OP_MOV_R8B(goto nec_dispatch_done); goto nec_dispatch_done;
+            case 0x8b: NEC_OP_MOV_R16W(goto nec_dispatch_done); goto nec_dispatch_done;
+            case 0xa1: NEC_OP_MOV_AXDISP(); goto nec_dispatch_done;
+            default:
+                nec_instruction[op]();
+                break;
+        }
+nec_dispatch_done:
         nec_ICount++;
     }
 /*
