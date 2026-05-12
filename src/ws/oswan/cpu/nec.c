@@ -302,6 +302,16 @@ static void nec_interrupt(unsigned int_num, BOOLEAN md_flag)
     CLK(1); \
 } while (0)
 
+#define NEC_OP_JZ(done_stmt) do { \
+    int tmp = (int)((INT8)FETCH); \
+    if (__builtin_expect(I.ZeroVal == 0, 1)) { \
+        I.ip = (WORD)(I.ip + tmp); \
+        nec_ICount -= 3; \
+        done_stmt; \
+    } \
+    CLK(1); \
+} while (0)
+
 #define NEC_OP_83PRE(done_stmt) do { \
     UINT32 dst, src; \
     GetModRM; \
@@ -675,7 +685,7 @@ OP( 0x70, i_jo      ) { JMP( OF);               CLK(1); }
 OP( 0x71, i_jno     ) { JMP(!OF);               CLK(1); }
 OP( 0x72, i_jc      ) { NEC_OP_JC(return); }
 OP( 0x73, i_jnc     ) { JMP(!CF);               CLK(1); }
-OP( 0x74, i_jz      ) { JMP( ZF);               CLK(1); }
+OP( 0x74, i_jz      ) { NEC_OP_JZ(return); }
 OP( 0x75, i_jnz     ) { NEC_OP_JNZ(return); }
 OP( 0x76, i_jce     ) { JMP(CF || ZF);          CLK(1); }
 OP( 0x77, i_jnce    ) { JMP(!(CF || ZF));       CLK(1); }
@@ -1423,6 +1433,7 @@ NEC_CORE_CODE int nec_execute(int cycles)
             case 0x03: NEC_OP_ADD_R16W(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x3b: NEC_OP_CMP_R16W(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x72: NEC_OP_JC(goto nec_dispatch_done); goto nec_dispatch_done;
+            case 0x74: NEC_OP_JZ(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x75: NEC_OP_JNZ(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x83: NEC_OP_83PRE(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x89: NEC_OP_MOV_WR16(goto nec_dispatch_done); goto nec_dispatch_done;
