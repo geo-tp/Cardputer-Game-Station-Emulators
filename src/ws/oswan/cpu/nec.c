@@ -399,6 +399,17 @@ static void nec_interrupt(unsigned int_num, BOOLEAN md_flag)
     CLK(1); \
 } while (0)
 
+#define NEC_OP_LOOP(done_stmt) do { \
+    const int disp = (int)((INT8)FETCH); \
+    I.regs.w[CW]--; \
+    if (__builtin_expect(I.regs.w[CW] != 0, 1)) { \
+        I.ip = (WORD)(I.ip + disp); \
+        CLK(5); \
+        done_stmt; \
+    } \
+    CLK(2); \
+} while (0)
+
 
 OP( 0x00, i_add_br8  ) { DEF_br8;   ADDB;   PutbackRMByte(ModRM,dst);   CLKM(3,1);      }
 OP( 0x01, i_add_wr16 ) { DEF_wr16;  ADDW;   PutbackRMWord(ModRM,dst);   CLKM(3,1);  }
@@ -944,7 +955,7 @@ OP( 0xd8, i_fpo    ) { GetModRM; CLK(3);     } /* nop at V30MZ? */
 
 OP( 0xe0, i_loopne ) { INT8 disp = (INT8)FETCH; I.regs.w[CW]--; if (!ZF && I.regs.w[CW]) { I.ip = (WORD)(I.ip+disp);  CLK(6); } else CLK(3); }
 OP( 0xe1, i_loope  ) { INT8 disp = (INT8)FETCH; I.regs.w[CW]--; if ( ZF && I.regs.w[CW]) { I.ip = (WORD)(I.ip+disp);  CLK(6); } else CLK(3); }
-OP( 0xe2, i_loop   ) { INT8 disp = (INT8)FETCH; I.regs.w[CW]--; if (I.regs.w[CW]) { I.ip = (WORD)(I.ip+disp);  CLK(5); } else CLK(2); }
+OP( 0xe2, i_loop   ) { NEC_OP_LOOP(return); }
 OP( 0xe3, i_jcxz   ) { INT8 disp = (INT8)FETCH; if (I.regs.w[CW] == 0) { I.ip = (WORD)(I.ip+disp);  CLK(4); } else CLK(1); }
 OP( 0xe4, i_inal   ) { UINT8 port = FETCH; I.regs.b[AL] = read_port(port); CLK(6);  }
 OP( 0xe5, i_inax   ) { UINT8 port = FETCH; I.regs.b[AL] = read_port(port); I.regs.b[AH] = read_port(port+1); CLK(6); }
@@ -1418,6 +1429,7 @@ NEC_CORE_CODE int nec_execute(int cycles)
             case 0x8a: NEC_OP_MOV_R8B(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x8b: NEC_OP_MOV_R16W(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0xa1: NEC_OP_MOV_AXDISP(); goto nec_dispatch_done;
+            case 0xe2: NEC_OP_LOOP(goto nec_dispatch_done); goto nec_dispatch_done;
             default:
                 nec_instruction[op]();
                 break;
