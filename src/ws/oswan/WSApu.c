@@ -226,7 +226,9 @@ unsigned char apuVoice(void)
   unsigned char v;
 
   if ((SDMACTL & 0x98) == 0x98) {  // Hyper voice
-    v = Page[SDMASB + b][SDMASA + index++];
+    BYTE* page = Page[(SDMASB + b) & 0x0F];
+    v = (!page || page == MemDummy) ? MemDummy[0] : page[SDMASA + index];
+    index++;
     if ((SDMASA + index) == 0) b++;
     v = (v < 0x80) ? (v + 0x80) : (v - 0x80);
     if (SDMACNT <= index) {
@@ -236,7 +238,9 @@ unsigned char apuVoice(void)
     return v;
   }
   else if ((SDMACTL & 0x88) == 0x80) { // DMA start
-    IO[0x89] = Page[SDMASB + b][SDMASA + index++];
+    BYTE* page = Page[(SDMASB + b) & 0x0F];
+    IO[0x89] = (!page || page == MemDummy) ? MemDummy[0] : page[SDMASA + index];
+    index++;
     if ((SDMASA + index) == 0) b++;
     if (SDMACNT <= index) {
       SDMACTL &= 0x7F; // DMA end

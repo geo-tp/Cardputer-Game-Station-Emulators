@@ -73,6 +73,10 @@ void WsSramBackingSelect(int bank);
 BYTE WsSramBackingRead(int offset);
 void WsSramBackingWrite(int offset, BYTE value);
 void WsSramBackingClose(void);
+void WsSramBackingFlush(void);
+int WsSramBackingActive(void);
+int WsSramBackingDirty(void);
+void WsSramBackingClearDirty(void);
 void WsRomPatch(BYTE *buf);
 int WsRun(void);
 #ifdef BENCHMARK_LOGS

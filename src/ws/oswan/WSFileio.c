@@ -99,7 +99,7 @@ int WsCreate(char *CartName)
         RAMMap[i] = MemDummy;
     }
     memset(IRAM, 0, sizeof(IRAM));
-    memset(MemDummy, 0xA0, sizeof(MemDummy));
+    *MemDummy = 0xA0;
     memset(IO, 0, sizeof(IO));
     if (CartName == NULL)
     {
@@ -406,10 +406,28 @@ int WsCreateFromMemory(const uint8_t *romData, size_t romSize)
     for (i = 0; i < 256; ++i) RAMMap[i] = MemDummy;
     if (RAMBanks == 1) {
         const size_t allocSize = (CartKind & CK_EEP) ? (size_t)RAMSize : ((RAMSize > 0x8000) ? 0x10000u : 0x8000u);
-        BYTE* one = allocSize ? (BYTE*)malloc(allocSize) : NULL;
+        BYTE* one = NULL;
+        if (!(CartKind & CK_EEP) && RAMSize >= 0x8000) {
+            WsSramBackingInit(1);
+            if (WsSramBackingActive()) {
+                printf("[WS] SRAM backed by SD cache: %u bytes\n", (unsigned)RAMSize);
+            }
+        }
+        if (!WsSramBackingActive()) {
+            one = allocSize ? (BYTE*)malloc(allocSize) : NULL;
+        }
         if (!one) {
-            printf("[WS] Save memory malloc %uB failed, mapping to MemDummy\n", (unsigned)allocSize);
-        } else {
+            if (!WsSramBackingActive()) {
+                printf("[WS] Save memory malloc %uB failed, mapping to MemDummy\n", (unsigned)allocSize);
+            }
+            if (!WsSramBackingActive() && !(CartKind & CK_EEP) && RAMSize > 0) {
+                WsSramBackingInit(1);
+                if (WsSramBackingActive()) {
+                    printf("[WS] SRAM backed by SD cache: %u bytes\n", (unsigned)RAMSize);
+                }
+            }
+        }
+        if (one) {
             memset(one, (CartKind & CK_EEP) ? 0xFF : 0x00, allocSize);
             RAMMap[0] = one; 
             printf("[WS] Save memory allocated: %u bytes (%s)\n",
