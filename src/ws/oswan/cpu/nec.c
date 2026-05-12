@@ -592,7 +592,16 @@ OP( 0x87, i_xchg_wr16 ) { DEF_wr16; RegWord(ModRM)=dst; PutbackRMWord(ModRM,src)
 OP( 0x88, i_mov_br8   ) { UINT8  src; GetModRM; src = RegByte(ModRM);   PutRMByte(ModRM,src);   CLKM(1,1);          }
 OP( 0x89, i_mov_wr16  ) { UINT16 src; GetModRM; src = RegWord(ModRM);   PutRMWord(ModRM,src);   CLKM(1,1);  }
 OP( 0x8a, i_mov_r8b   ) { UINT8  src; GetModRM; src = GetRMByte(ModRM); RegByte(ModRM)=src;     CLKM(1,1);      }
-OP( 0x8b, i_mov_r16w  ) { UINT16 src; GetModRM; src = GetRMWord(ModRM); RegWord(ModRM)=src;     CLKM(1,1);  }
+OP( 0x8b, i_mov_r16w  ) { GetModRM;
+	if (ModRM >= 0xc0) {
+		I.regs.w[(ModRM >> 3) & 7] = I.regs.w[ModRM & 7];
+		CLK(1);
+		return;
+	}
+	(*GetEA[ModRM])();
+	I.regs.w[(ModRM >> 3) & 7] = (UINT16)ReadWord(EA);
+	CLK(1);
+}
 OP( 0x8c, i_mov_wsreg ) { GetModRM; PutRMWord(ModRM,I.sregs[(ModRM & 0x38) >> 3]);              CLKM(1,1); }
 OP( 0x8d, i_lea       ) { UINT16 ModRM = FETCH; (void)(*GetEA[ModRM])(); RegWord(ModRM)=EO;     CLK(1); }
 OP( 0x8e, i_mov_sregw ) { UINT16 src; GetModRM; src = GetRMWord(ModRM); CLKM(3,2);
