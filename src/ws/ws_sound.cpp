@@ -10,7 +10,7 @@ extern "C" {
 
 static constexpr int kNativeSampleRate = 24000;
 static int           g_sample_rate = kNativeSampleRate;
-static constexpr int kFps          = 75;
+static constexpr int kDefaultPeriodMs = 8;
 static int           g_chunk       = 0; 
 static constexpr int kChannel      = 0;
 static constexpr int kMaxChunk     = 320;
@@ -46,6 +46,14 @@ static inline int16_t clamp16(int32_t v) {
 
 static bool buffers_ok() {
   return g_chunk <= kMaxChunk;
+}
+
+static void set_chunk_for_period(uint32_t period_ms) {
+  if (period_ms == 0) period_ms = kDefaultPeriodMs;
+  int chunk = (int)(((uint32_t)g_sample_rate * period_ms + 500u) / 1000u);
+  if (chunk < 64) chunk = 64;
+  if (chunk > kMaxChunk) chunk = kMaxChunk;
+  g_chunk = chunk;
 }
 
 static inline void build_block_from_apu(int16_t* dst) {
@@ -94,7 +102,7 @@ static inline void queue_block(const int16_t* pcm) {
 // -----------------------------------------------------------------------------
 extern "C" void ws_sound_init(int sample_rate_hz) {
   g_sample_rate = sample_rate_hz > 0 ? sample_rate_hz : kNativeSampleRate;
-  g_chunk = (g_sample_rate + kFps/2) / kFps;
+  set_chunk_for_period(kDefaultPeriodMs);
 
   if (!buffers_ok()) {
     g_chunk = kMaxChunk;
@@ -184,7 +192,8 @@ static void ws_audio_task(void* arg) {
 extern "C" void ws_sound_start_task(uint32_t period_ms, int core) {
   if (s_taskAudio) return;
 
-  if (period_ms == 0) period_ms = 8; 
+  if (period_ms == 0) period_ms = kDefaultPeriodMs;
+  set_chunk_for_period(period_ms);
   s_periodTicks = pdMS_TO_TICKS(period_ms);
 
   s_runAudio = true;

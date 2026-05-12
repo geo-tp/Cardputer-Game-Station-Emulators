@@ -64,7 +64,6 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
   ws_display_init();
   ws_display_start();
   ws_sound_init(24000);
-  ws_sound_start_task(8, 0);
   WsInit(); // splash screen
   EMU_LOG("[WS] Init done\n");
   
@@ -78,6 +77,7 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
   // SRAM save/load
   ws_save_init(rom_name);
   ws_save_load();
+  ws_sound_start_task(8, 0);
 
   // Timing
   const uint32_t frame_us = 1000000u / 75u; // 13.3 ms
