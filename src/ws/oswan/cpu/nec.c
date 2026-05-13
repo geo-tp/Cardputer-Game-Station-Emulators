@@ -228,6 +228,8 @@ static UINT32 nec_digimon_scan_fastpath_miss_sig;
 #ifdef WS_CPU_SAFE_POLL_WAIT_FASTPATH
 static UINT32 nec_pollwait_mov_cmp_jb_exits;
 static UINT32 nec_pollwait_mov_cmp_jb_slices;
+static UINT32 nec_pollwait_moval_cmp_imm_jnz_exits;
+static UINT32 nec_pollwait_moval_cmp_imm_jnz_slices;
 static UINT32 nec_pollwait_cmp_imm_jnz_exits;
 static UINT32 nec_pollwait_cmp_imm_jnz_slices;
 static UINT32 nec_pollwait_cmpb_imm_jnz_exits;
@@ -267,20 +269,26 @@ void nec_profile_log_and_reset(void)
 #ifdef WS_CPU_SAFE_POLL_WAIT_FASTPATH
     if(nec_pollwait_mov_cmp_jb_exits ||
        nec_pollwait_mov_cmp_jb_slices ||
+       nec_pollwait_moval_cmp_imm_jnz_exits ||
+       nec_pollwait_moval_cmp_imm_jnz_slices ||
        nec_pollwait_cmp_imm_jnz_exits ||
        nec_pollwait_cmp_imm_jnz_slices ||
        nec_pollwait_cmpb_imm_jnz_exits ||
        nec_pollwait_cmpb_imm_jnz_slices)
     {
-        printf("[WS][CPU][POLLWAIT] mov_cmp_jb exits=%u slices=%u cmp_imm_jnz exits=%u slices=%u cmpb_imm_jnz exits=%u slices=%u\n",
+        printf("[WS][CPU][POLLWAIT] mov_cmp_jb exits=%u slices=%u moval_cmp_imm_jnz exits=%u slices=%u cmp_imm_jnz exits=%u slices=%u cmpb_imm_jnz exits=%u slices=%u\n",
                nec_pollwait_mov_cmp_jb_exits,
                nec_pollwait_mov_cmp_jb_slices,
+               nec_pollwait_moval_cmp_imm_jnz_exits,
+               nec_pollwait_moval_cmp_imm_jnz_slices,
                nec_pollwait_cmp_imm_jnz_exits,
                nec_pollwait_cmp_imm_jnz_slices,
                nec_pollwait_cmpb_imm_jnz_exits,
                nec_pollwait_cmpb_imm_jnz_slices);
         nec_pollwait_mov_cmp_jb_exits = 0;
         nec_pollwait_mov_cmp_jb_slices = 0;
+        nec_pollwait_moval_cmp_imm_jnz_exits = 0;
+        nec_pollwait_moval_cmp_imm_jnz_slices = 0;
         nec_pollwait_cmp_imm_jnz_exits = 0;
         nec_pollwait_cmp_imm_jnz_slices = 0;
         nec_pollwait_cmpb_imm_jnz_exits = 0;
@@ -345,6 +353,49 @@ static NEC_CORE_CODE int nec_fast_pollwait_mov_ax_disp_cmp_cx_jb(void)
     I.ip = (UINT16)(op_start + 7);
     nec_pollwait_mov_cmp_jb_exits++;
     nec_ICount -= 4; /* mov ax,[disp] + cmp ax,cx + not-taken jb, adjusted for dispatch epilogue */
+    return 1;
+}
+
+static NEC_CORE_CODE int nec_fast_pollwait_mov_al_disp_cmp_imm8_jnz(void)
+{
+    const UINT16 op_start = (UINT16)(I.ip - 1);
+    const UINT16 disp = (UINT16)(PEEKOP(cs_base + (UINT16)(op_start + 1)) |
+                                 (PEEKOP(cs_base + (UINT16)(op_start + 2)) << 8));
+    const UINT8 imm = PEEKOP(cs_base + (UINT16)(op_start + 4));
+    const INT8 rel = (INT8)PEEKOP(cs_base + (UINT16)(op_start + 6));
+    const UINT16 target = (UINT16)(op_start + 7 + rel);
+
+    if(seg_prefix)
+    {
+        return 0;
+    }
+    if(PEEKOP(cs_base + op_start) != 0xA0 ||
+       PEEKOP(cs_base + (UINT16)(op_start + 3)) != 0x3C ||
+       PEEKOP(cs_base + (UINT16)(op_start + 5)) != 0x75 ||
+       target != op_start)
+    {
+        return 0;
+    }
+
+    I.regs.b[AL] = GetMemB(DS, disp);
+
+    {
+        UINT32 dst = I.regs.b[AL];
+        UINT32 src = imm;
+        SUBB;
+    }
+
+    if(!ZF)
+    {
+        I.ip = op_start;
+        nec_pollwait_moval_cmp_imm_jnz_slices++;
+        nec_ICount = -1; /* wait for the polled byte to change instead of spinning in host CPU */
+        return 1;
+    }
+
+    I.ip = (UINT16)(op_start + 7);
+    nec_pollwait_moval_cmp_imm_jnz_exits++;
+    nec_ICount -= 4; /* mov al,[disp] + cmp al,imm8 + not-taken jnz, adjusted for dispatch epilogue */
     return 1;
 }
 
@@ -1903,6 +1954,11 @@ NEC_CORE_CODE int nec_execute(int cycles)
             case 0x89: NEC_OP_MOV_WR16(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x8a: NEC_OP_MOV_R8B(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x8b: NEC_OP_MOV_R16W(goto nec_dispatch_done); goto nec_dispatch_done;
+            case 0xa0:
+#ifdef WS_CPU_SAFE_POLL_WAIT_FASTPATH
+                if(nec_fast_pollwait_mov_al_disp_cmp_imm8_jnz()) goto nec_dispatch_done;
+#endif
+                nec_instruction[op](); break;
             case 0xa1:
 #ifdef WS_CPU_SAFE_POLL_WAIT_FASTPATH
                 if(nec_fast_pollwait_mov_ax_disp_cmp_cx_jb()) goto nec_dispatch_done;
