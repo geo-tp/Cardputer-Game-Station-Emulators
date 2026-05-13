@@ -1,24 +1,17 @@
 static struct {
 	struct {
-		WREGS *w;
-		BREGS *b;
+		BYTE w[256];
+		BYTE b[256];
 	} reg;
 	struct {
-		WREGS *w;
-		BREGS *b;
+		BYTE w[256];
+		BYTE b[256];
 	} RM;
 } Mod_RM;
 
 void init_ModRM_tables(void)
 {
-	Mod_RM.reg.w = malloc(256 * sizeof(WREGS));
-	Mod_RM.reg.b = malloc(256 * sizeof(BREGS));
-	Mod_RM.RM.w = malloc(256 * sizeof(WREGS));
-	Mod_RM.RM.b = malloc(256 * sizeof(BREGS));
-	memset(Mod_RM.reg.w, 0, 256 * sizeof(WREGS));
-	memset(Mod_RM.reg.b, 0, 256 * sizeof(BREGS));
-	memset(Mod_RM.RM.w, 0, 256 * sizeof(WREGS));
-	memset(Mod_RM.RM.b, 0, 256 * sizeof(BREGS));
+	memset(&Mod_RM, 0, sizeof(Mod_RM));
 }
 
 #define RegWord(ModRM) I.regs.w[Mod_RM.reg.w[ModRM]]
