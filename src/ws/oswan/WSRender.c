@@ -24,16 +24,25 @@ static inline unsigned int WsRenderElapsedUs(unsigned long start)
     return (unsigned int)(SDL_UXTimerRead() - start);
 }
 
-#define WS_RENDER_DECODE_ROW(calls, usec, index, data, packedMode, color16, hrev) \
+#define WS_RENDER_DECODE_SAMPLE_MASK 63u
+#define WS_RENDER_DECODE_ROW(calls, samples, usec, index, data, packedMode, color16, hrev) \
     do { \
-        unsigned long ws_render_decode_t0 = SDL_UXTimerRead(); \
-        DecodeTileRow((index), (data), (packedMode), (color16), (hrev)); \
-        (usec) += WsRenderElapsedUs(ws_render_decode_t0); \
-        (calls)++; \
+        const unsigned int ws_render_decode_call = (calls)++; \
+        if((ws_render_decode_call & WS_RENDER_DECODE_SAMPLE_MASK) == 0u) \
+        { \
+            unsigned long ws_render_decode_t0 = SDL_UXTimerRead(); \
+            DecodeTileRow((index), (data), (packedMode), (color16), (hrev)); \
+            (usec) += WsRenderElapsedUs(ws_render_decode_t0); \
+            (samples)++; \
+        } \
+        else \
+        { \
+            DecodeTileRow((index), (data), (packedMode), (color16), (hrev)); \
+        } \
     } while (0)
 #else
 #define WS_RENDER_MICROBENCH_ON 0
-#define WS_RENDER_DECODE_ROW(calls, usec, index, data, packedMode, color16, hrev) \
+#define WS_RENDER_DECODE_ROW(calls, samples, usec, index, data, packedMode, color16, hrev) \
     DecodeTileRow((index), (data), (packedMode), (color16), (hrev))
 #endif
 
@@ -245,10 +254,13 @@ WS_PPU_CODE void RefreshLine(int Line)
     unsigned int renderSpriteScanUs = 0;
     unsigned int renderSpriteDrawUs = 0;
     unsigned int bgDecodeCalls = 0;
+    unsigned int bgDecodeSamples = 0;
     unsigned int bgDecodeUs = 0;
     unsigned int fgDecodeCalls = 0;
+    unsigned int fgDecodeSamples = 0;
     unsigned int fgDecodeUs = 0;
     unsigned int spriteDecodeCalls = 0;
+    unsigned int spriteDecodeSamples = 0;
     unsigned int spriteDecodeUs = 0;
     unsigned long renderSectionStart;
 #endif
@@ -287,8 +299,9 @@ WS_PPU_CODE void RefreshLine(int Line)
 #if WS_RENDER_MICROBENCH_ON
         WsBenchRenderLine(renderClearUs, renderBgUs, renderFgUs,
                           renderSpriteWindowUs, renderSpriteScanUs,
-                          renderSpriteDrawUs, bgDecodeCalls, bgDecodeUs,
-                          fgDecodeCalls, fgDecodeUs, spriteDecodeCalls,
+                          renderSpriteDrawUs, bgDecodeCalls, bgDecodeSamples,
+                          bgDecodeUs, fgDecodeCalls, fgDecodeSamples,
+                          fgDecodeUs, spriteDecodeCalls, spriteDecodeSamples,
                           spriteDecodeUs);
 #endif
         return;
@@ -354,8 +367,9 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
 
-            WS_RENDER_DECODE_ROW(bgDecodeCalls, bgDecodeUs, index, pbTData,
-                                 packedMode, color16, TMap & MAP_HREV);
+            WS_RENDER_DECODE_ROW(bgDecodeCalls, bgDecodeSamples, bgDecodeUs,
+                                 index, pbTData, packedMode, color16,
+                                 TMap & MAP_HREV);
             const int zeroTransparent = color16 || (TMap & 0x0800);
 
             PalIndex = (TMap & MAP_PAL) >> 9;
@@ -500,8 +514,9 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
 
-            WS_RENDER_DECODE_ROW(fgDecodeCalls, fgDecodeUs, index, pbTData,
-                                 packedMode, color16, TMap & MAP_HREV);
+            WS_RENDER_DECODE_ROW(fgDecodeCalls, fgDecodeSamples, fgDecodeUs,
+                                 index, pbTData, packedMode, color16,
+                                 TMap & MAP_HREV);
             const int zeroTransparent = color16 || (TMap & 0x0800);
 
             PalIndex = (TMap & MAP_PAL) >> 9;
@@ -682,8 +697,9 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
 
-            WS_RENDER_DECODE_ROW(spriteDecodeCalls, spriteDecodeUs, index, pbTData,
-                                 packedMode, color16, TMap & SPR_HREV);
+            WS_RENDER_DECODE_ROW(spriteDecodeCalls, spriteDecodeSamples,
+                                 spriteDecodeUs, index, pbTData, packedMode,
+                                 color16, TMap & SPR_HREV);
             const int zeroTransparent = color16 || (TMap & 0x0800);
 
             pW = WBuf + 8 + sprX + firstPixel;
@@ -750,8 +766,9 @@ WS_PPU_CODE void RefreshLine(int Line)
 #if WS_RENDER_MICROBENCH_ON
     WsBenchRenderLine(renderClearUs, renderBgUs, renderFgUs,
                       renderSpriteWindowUs, renderSpriteScanUs,
-                      renderSpriteDrawUs, bgDecodeCalls, bgDecodeUs,
-                      fgDecodeCalls, fgDecodeUs, spriteDecodeCalls,
+                      renderSpriteDrawUs, bgDecodeCalls, bgDecodeSamples,
+                      bgDecodeUs, fgDecodeCalls, fgDecodeSamples,
+                      fgDecodeUs, spriteDecodeCalls, spriteDecodeSamples,
                       spriteDecodeUs);
 #endif
 }

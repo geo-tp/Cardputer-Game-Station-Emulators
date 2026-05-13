@@ -71,10 +71,13 @@ typedef struct WsCoreStats {
     unsigned int renderSpriteScanUs;
     unsigned int renderSpriteDrawUs;
     unsigned int renderBgDecodeCalls;
+    unsigned int renderBgDecodeSamples;
     unsigned int renderBgDecodeUs;
     unsigned int renderFgDecodeCalls;
+    unsigned int renderFgDecodeSamples;
     unsigned int renderFgDecodeUs;
     unsigned int renderSpriteDecodeCalls;
+    unsigned int renderSpriteDecodeSamples;
     unsigned int renderSpriteDecodeUs;
 #endif
     int frameSkip;
@@ -107,9 +110,12 @@ void WsBenchSpriteLine(unsigned int candidates, unsigned int visible,
 void WsBenchRenderLine(unsigned int clearUs, unsigned int bgUs,
                        unsigned int fgUs, unsigned int spriteWindowUs,
                        unsigned int spriteScanUs, unsigned int spriteDrawUs,
-                       unsigned int bgDecodeCalls, unsigned int bgDecodeUs,
-                       unsigned int fgDecodeCalls, unsigned int fgDecodeUs,
-                       unsigned int spriteDecodeCalls, unsigned int spriteDecodeUs);
+                       unsigned int bgDecodeCalls, unsigned int bgDecodeSamples,
+                       unsigned int bgDecodeUs, unsigned int fgDecodeCalls,
+                       unsigned int fgDecodeSamples, unsigned int fgDecodeUs,
+                       unsigned int spriteDecodeCalls,
+                       unsigned int spriteDecodeSamples,
+                       unsigned int spriteDecodeUs);
 #endif
 #endif
 void WsSplash(void);

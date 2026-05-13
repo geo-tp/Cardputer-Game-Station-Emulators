@@ -512,9 +512,12 @@ void WsBenchSpriteLine(unsigned int candidates, unsigned int visible,
 void WsBenchRenderLine(unsigned int clearUs, unsigned int bgUs,
                        unsigned int fgUs, unsigned int spriteWindowUs,
                        unsigned int spriteScanUs, unsigned int spriteDrawUs,
-                       unsigned int bgDecodeCalls, unsigned int bgDecodeUs,
-                       unsigned int fgDecodeCalls, unsigned int fgDecodeUs,
-                       unsigned int spriteDecodeCalls, unsigned int spriteDecodeUs)
+                       unsigned int bgDecodeCalls, unsigned int bgDecodeSamples,
+                       unsigned int bgDecodeUs, unsigned int fgDecodeCalls,
+                       unsigned int fgDecodeSamples, unsigned int fgDecodeUs,
+                       unsigned int spriteDecodeCalls,
+                       unsigned int spriteDecodeSamples,
+                       unsigned int spriteDecodeUs)
 {
     s_coreStats.renderLines++;
     s_coreStats.renderClearUs += clearUs;
@@ -524,10 +527,13 @@ void WsBenchRenderLine(unsigned int clearUs, unsigned int bgUs,
     s_coreStats.renderSpriteScanUs += spriteScanUs;
     s_coreStats.renderSpriteDrawUs += spriteDrawUs;
     s_coreStats.renderBgDecodeCalls += bgDecodeCalls;
+    s_coreStats.renderBgDecodeSamples += bgDecodeSamples;
     s_coreStats.renderBgDecodeUs += bgDecodeUs;
     s_coreStats.renderFgDecodeCalls += fgDecodeCalls;
+    s_coreStats.renderFgDecodeSamples += fgDecodeSamples;
     s_coreStats.renderFgDecodeUs += fgDecodeUs;
     s_coreStats.renderSpriteDecodeCalls += spriteDecodeCalls;
+    s_coreStats.renderSpriteDecodeSamples += spriteDecodeSamples;
     s_coreStats.renderSpriteDecodeUs += spriteDecodeUs;
 }
 #endif
