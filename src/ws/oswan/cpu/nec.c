@@ -226,6 +226,8 @@ static UINT32 nec_pollwait_cmp_imm_jnz_exits;
 static UINT32 nec_pollwait_cmp_imm_jnz_slices;
 static UINT32 nec_pollwait_cmpb_imm_jnz_exits;
 static UINT32 nec_pollwait_cmpb_imm_jnz_slices;
+static UINT32 nec_pollwait_cmpb_imm_jz_exits;
+static UINT32 nec_pollwait_cmpb_imm_jz_slices;
 #endif
 
 #if defined(WS_CPU_PROFILE) || defined(WS_CPU_BRANCH_PROFILE) || defined(WS_CPU_SAFE_POLL_WAIT_FASTPATH)
@@ -248,9 +250,11 @@ void nec_profile_log_and_reset(void)
        nec_pollwait_cmp_imm_jnz_exits ||
        nec_pollwait_cmp_imm_jnz_slices ||
        nec_pollwait_cmpb_imm_jnz_exits ||
-       nec_pollwait_cmpb_imm_jnz_slices)
+       nec_pollwait_cmpb_imm_jnz_slices ||
+       nec_pollwait_cmpb_imm_jz_exits ||
+       nec_pollwait_cmpb_imm_jz_slices)
     {
-        printf("[WS][CPU][POLLWAIT] mov_cmp_jb exits=%u slices=%u moval_cmp_imm_jnz exits=%u slices=%u cmp_imm_jnz exits=%u slices=%u cmpb_imm_jnz exits=%u slices=%u\n",
+        printf("[WS][CPU][POLLWAIT] mov_cmp_jb exits=%u slices=%u moval_cmp_imm_jnz exits=%u slices=%u cmp_imm_jnz exits=%u slices=%u cmpb_imm_jnz exits=%u slices=%u cmpb_imm_jz exits=%u slices=%u\n",
                nec_pollwait_mov_cmp_jb_exits,
                nec_pollwait_mov_cmp_jb_slices,
                nec_pollwait_moval_cmp_imm_jnz_exits,
@@ -258,7 +262,9 @@ void nec_profile_log_and_reset(void)
                nec_pollwait_cmp_imm_jnz_exits,
                nec_pollwait_cmp_imm_jnz_slices,
                nec_pollwait_cmpb_imm_jnz_exits,
-               nec_pollwait_cmpb_imm_jnz_slices);
+               nec_pollwait_cmpb_imm_jnz_slices,
+               nec_pollwait_cmpb_imm_jz_exits,
+               nec_pollwait_cmpb_imm_jz_slices);
         nec_pollwait_mov_cmp_jb_exits = 0;
         nec_pollwait_mov_cmp_jb_slices = 0;
         nec_pollwait_moval_cmp_imm_jnz_exits = 0;
@@ -267,6 +273,8 @@ void nec_profile_log_and_reset(void)
         nec_pollwait_cmp_imm_jnz_slices = 0;
         nec_pollwait_cmpb_imm_jnz_exits = 0;
         nec_pollwait_cmpb_imm_jnz_slices = 0;
+        nec_pollwait_cmpb_imm_jz_exits = 0;
+        nec_pollwait_cmpb_imm_jz_slices = 0;
     }
 #endif
 }
@@ -414,12 +422,13 @@ static NEC_CORE_CODE int nec_fast_pollwait_cmpw_disp_imm8_jnz(void)
     return 1;
 }
 
-static NEC_CORE_CODE int nec_fast_pollwait_cmpb_disp_imm8_jnz(void)
+static NEC_CORE_CODE int nec_fast_pollwait_cmpb_disp_imm8_jcc(void)
 {
     const UINT16 op_start = (UINT16)(I.ip - 1);
     const UINT16 disp = (UINT16)(PEEKOP(cs_base + (UINT16)(op_start + 2)) |
                                  (PEEKOP(cs_base + (UINT16)(op_start + 3)) << 8));
     const UINT8 imm = PEEKOP(cs_base + (UINT16)(op_start + 4));
+    const UINT8 branch_op = PEEKOP(cs_base + (UINT16)(op_start + 5));
     const INT8 rel = (INT8)PEEKOP(cs_base + (UINT16)(op_start + 6));
     const UINT16 target = (UINT16)(op_start + 7 + rel);
 
@@ -429,7 +438,7 @@ static NEC_CORE_CODE int nec_fast_pollwait_cmpb_disp_imm8_jnz(void)
     }
     if(PEEKOP(cs_base + op_start) != 0x80 ||
        PEEKOP(cs_base + (UINT16)(op_start + 1)) != 0x3E ||
-       PEEKOP(cs_base + (UINT16)(op_start + 5)) != 0x75 ||
+       (branch_op != 0x75 && branch_op != 0x74) ||
        target != op_start)
     {
         return 0;
@@ -441,17 +450,23 @@ static NEC_CORE_CODE int nec_fast_pollwait_cmpb_disp_imm8_jnz(void)
         SUBB;
     }
 
-    if(!ZF)
+    if((branch_op == 0x75 && !ZF) || (branch_op == 0x74 && ZF))
     {
         I.ip = op_start;
-        nec_pollwait_cmpb_imm_jnz_slices++;
+        if(branch_op == 0x75)
+            nec_pollwait_cmpb_imm_jnz_slices++;
+        else
+            nec_pollwait_cmpb_imm_jz_slices++;
         nec_ICount = -1; /* wait for the timer/flag update instead of polling in host CPU */
         return 1;
     }
 
     I.ip = (UINT16)(op_start + 7);
-    nec_pollwait_cmpb_imm_jnz_exits++;
-    nec_ICount -= 4; /* cmp byte [disp],imm8 + not-taken jnz, adjusted for dispatch epilogue */
+    if(branch_op == 0x75)
+        nec_pollwait_cmpb_imm_jnz_exits++;
+    else
+        nec_pollwait_cmpb_imm_jz_exits++;
+    nec_ICount -= 4; /* cmp byte [disp],imm8 + not-taken jcc, adjusted for dispatch epilogue */
     return 1;
 }
 #endif
@@ -1832,7 +1847,7 @@ NEC_CORE_CODE int nec_execute(int cycles)
             case 0x75: NEC_OP_JNZ(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x80:
 #ifdef WS_CPU_SAFE_POLL_WAIT_FASTPATH
-                if(nec_fast_pollwait_cmpb_disp_imm8_jnz()) goto nec_dispatch_done;
+                if(nec_fast_pollwait_cmpb_disp_imm8_jcc()) goto nec_dispatch_done;
 #endif
                 NEC_OP_80PRE(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x83:
