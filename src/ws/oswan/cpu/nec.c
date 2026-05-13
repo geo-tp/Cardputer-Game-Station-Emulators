@@ -220,9 +220,23 @@ static void nec_profile_print_branches(void)
 #ifdef WS_CPU_DIGIMON_SCAN_FASTPATH
 static UINT32 nec_digimon_scan_fastpath_calls;
 static UINT32 nec_digimon_scan_fastpath_iters;
+static UINT32 nec_digimon_scan_fastpath_miss_ip;
+static UINT32 nec_digimon_scan_fastpath_miss_prefix;
+static UINT32 nec_digimon_scan_fastpath_miss_sig;
 #endif
 
-#if defined(WS_CPU_PROFILE) || defined(WS_CPU_BRANCH_PROFILE)
+#ifdef WS_CPU_FINALLAP_WAIT_FASTPATH
+static UINT32 nec_finallap_wait_fastpath_exits;
+static UINT32 nec_finallap_wait_fastpath_slices;
+static UINT32 nec_finallap_race_wait_fastpath_exits;
+static UINT32 nec_finallap_race_wait_fastpath_slices;
+static UINT32 nec_finallap_wait_fastpath_miss_ip;
+static UINT32 nec_finallap_wait_fastpath_miss_prefix;
+static UINT32 nec_finallap_wait_fastpath_miss_sig;
+static UINT32 nec_finallap_race_wait_fastpath_miss_sig;
+#endif
+
+#if defined(WS_CPU_PROFILE) || defined(WS_CPU_BRANCH_PROFILE) || defined(WS_CPU_DIGIMON_SCAN_FASTPATH) || defined(WS_CPU_FINALLAP_WAIT_FASTPATH)
 void nec_profile_log_and_reset(void)
 {
 #ifdef WS_CPU_PROFILE
@@ -235,12 +249,50 @@ void nec_profile_log_and_reset(void)
     nec_profile_print_branches();
 #endif
 #ifdef WS_CPU_DIGIMON_SCAN_FASTPATH
-    if(nec_digimon_scan_fastpath_calls)
+    if(nec_digimon_scan_fastpath_calls ||
+       nec_digimon_scan_fastpath_miss_ip ||
+       nec_digimon_scan_fastpath_miss_prefix ||
+       nec_digimon_scan_fastpath_miss_sig)
     {
-        printf("[WS][CPU][DIGIMON] scan_fastpath calls=%u iters=%u\n",
-               nec_digimon_scan_fastpath_calls, nec_digimon_scan_fastpath_iters);
+        printf("[WS][CPU][DIGIMON] scan_fastpath calls=%u iters=%u miss_ip=%u miss_prefix=%u miss_sig=%u\n",
+               nec_digimon_scan_fastpath_calls, nec_digimon_scan_fastpath_iters,
+               nec_digimon_scan_fastpath_miss_ip,
+               nec_digimon_scan_fastpath_miss_prefix,
+               nec_digimon_scan_fastpath_miss_sig);
         nec_digimon_scan_fastpath_calls = 0;
         nec_digimon_scan_fastpath_iters = 0;
+        nec_digimon_scan_fastpath_miss_ip = 0;
+        nec_digimon_scan_fastpath_miss_prefix = 0;
+        nec_digimon_scan_fastpath_miss_sig = 0;
+    }
+#endif
+#ifdef WS_CPU_FINALLAP_WAIT_FASTPATH
+    if(nec_finallap_wait_fastpath_exits ||
+       nec_finallap_wait_fastpath_slices ||
+       nec_finallap_race_wait_fastpath_exits ||
+       nec_finallap_race_wait_fastpath_slices ||
+       nec_finallap_wait_fastpath_miss_ip ||
+       nec_finallap_wait_fastpath_miss_prefix ||
+       nec_finallap_wait_fastpath_miss_sig ||
+       nec_finallap_race_wait_fastpath_miss_sig)
+    {
+        printf("[WS][CPU][FINALLAP] wait_fastpath exits=%u slices=%u race_exits=%u race_slices=%u miss_ip=%u miss_prefix=%u miss_sig=%u race_miss_sig=%u\n",
+               nec_finallap_wait_fastpath_exits,
+               nec_finallap_wait_fastpath_slices,
+               nec_finallap_race_wait_fastpath_exits,
+               nec_finallap_race_wait_fastpath_slices,
+               nec_finallap_wait_fastpath_miss_ip,
+               nec_finallap_wait_fastpath_miss_prefix,
+               nec_finallap_wait_fastpath_miss_sig,
+               nec_finallap_race_wait_fastpath_miss_sig);
+        nec_finallap_wait_fastpath_exits = 0;
+        nec_finallap_wait_fastpath_slices = 0;
+        nec_finallap_race_wait_fastpath_exits = 0;
+        nec_finallap_race_wait_fastpath_slices = 0;
+        nec_finallap_wait_fastpath_miss_ip = 0;
+        nec_finallap_wait_fastpath_miss_prefix = 0;
+        nec_finallap_wait_fastpath_miss_sig = 0;
+        nec_finallap_race_wait_fastpath_miss_sig = 0;
     }
 #endif
 }
@@ -259,6 +311,103 @@ static int no_interrupt;
 
 static UINT8 *parity_table;
 
+#ifdef WS_CPU_FINALLAP_WAIT_FASTPATH
+static NEC_CORE_CODE int nec_fast_finallap_wait_loop(void)
+{
+    static const UINT8 sig[] = {
+        0xA1, 0x10, 0xED,       /* mov ax,[ED10] */
+        0x3B, 0xC1,             /* cmp ax,cx */
+        0x72, 0xF9              /* jb 01D9 */
+    };
+
+    if(I.sregs[CS] != 0x4000)
+    {
+        return 0;
+    }
+    if(I.ip != 0x01DA)
+    {
+        nec_finallap_wait_fastpath_miss_ip++;
+        return 0;
+    }
+    if(seg_prefix)
+    {
+        nec_finallap_wait_fastpath_miss_prefix++;
+        return 0;
+    }
+
+    for(UINT32 i = 0; i < sizeof(sig); ++i)
+    {
+        if(PEEKOP(cs_base + 0x01D9 + i) != sig[i])
+        {
+            nec_finallap_wait_fastpath_miss_sig++;
+            return 0;
+        }
+    }
+
+    I.regs.w[AW] = GetMemW(DS, 0xED10);
+
+    {
+        UINT32 dst = I.regs.w[AW];
+        UINT32 src = I.regs.w[CW];
+        SUBW;
+    }
+
+    if(CF)
+    {
+        I.ip = 0x01D9;
+        nec_finallap_wait_fastpath_slices++;
+        nec_ICount = -1; /* dispatch epilogue brings this to zero and returns the full slice */
+        return 1;
+    }
+
+    I.ip = 0x01E0;
+    nec_finallap_wait_fastpath_exits++;
+    nec_ICount -= 4; /* mov ax,[disp] + cmp ax,cx + not-taken jb, adjusted for dispatch epilogue */
+    return 1;
+}
+
+static NEC_CORE_CODE int nec_fast_finallap_race_wait_loop(void)
+{
+    static const UINT8 sig[] = {
+        0x83, 0x3E, 0x2C, 0xC1, 0x00, /* cmp word [C12C],0 */
+        0x75, 0xF9,                   /* jnz 383B */
+        0x83, 0x3E, 0x78, 0xC0, 0x03, /* cmp word [C078],3 */
+        0x72, 0xEC                    /* jb 3835 */
+    };
+
+    if(I.sregs[CS] != 0xE000 || I.ip != 0x383C || seg_prefix)
+    {
+        return 0;
+    }
+
+    for(UINT32 i = 0; i < sizeof(sig); ++i)
+    {
+        if(PEEKOP(cs_base + 0x383B + i) != sig[i])
+        {
+            nec_finallap_race_wait_fastpath_miss_sig++;
+            return 0;
+        }
+    }
+
+    {
+        UINT32 dst = GetMemW(DS, 0xC12C);
+        UINT32 src = 0;
+        SUBW;
+    }
+
+    if(!ZF)
+    {
+        I.ip = 0x383B;
+        nec_finallap_race_wait_fastpath_slices++;
+        nec_ICount = -1; /* wait for the timer/flag update instead of polling in host CPU */
+        return 1;
+    }
+
+    nec_finallap_race_wait_fastpath_exits++;
+    return 0;
+}
+#endif
+
 #ifdef WS_CPU_DIGIMON_SCAN_FASTPATH
 static NEC_CORE_CODE int nec_fast_digimon_scan_loop(void)
 {
@@ -274,8 +423,18 @@ static NEC_CORE_CODE int nec_fast_digimon_scan_loop(void)
         0x75, 0xEC              /* jnz 347E */
     };
 
-    if(I.sregs[CS] != 0xA000 || I.ip != 0x347F || seg_prefix || no_interrupt)
+    if(I.sregs[CS] != 0xA000)
     {
+        return 0;
+    }
+    if(I.ip != 0x347F)
+    {
+        nec_digimon_scan_fastpath_miss_ip++;
+        return 0;
+    }
+    if(seg_prefix)
+    {
+        nec_digimon_scan_fastpath_miss_prefix++;
         return 0;
     }
 
@@ -283,6 +442,7 @@ static NEC_CORE_CODE int nec_fast_digimon_scan_loop(void)
     {
         if(PEEKOP(cs_base + 0x347E + i) != sig[i])
         {
+            nec_digimon_scan_fastpath_miss_sig++;
             return 0;
         }
     }
@@ -1708,11 +1868,19 @@ NEC_CORE_CODE int nec_execute(int cycles)
             case 0x74: NEC_OP_JZ(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x75: NEC_OP_JNZ(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x80: NEC_OP_80PRE(goto nec_dispatch_done); goto nec_dispatch_done;
-            case 0x83: NEC_OP_83PRE(goto nec_dispatch_done); goto nec_dispatch_done;
+            case 0x83:
+#ifdef WS_CPU_FINALLAP_WAIT_FASTPATH
+                if(nec_fast_finallap_race_wait_loop()) goto nec_dispatch_done;
+#endif
+                NEC_OP_83PRE(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x89: NEC_OP_MOV_WR16(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x8a: NEC_OP_MOV_R8B(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x8b: NEC_OP_MOV_R16W(goto nec_dispatch_done); goto nec_dispatch_done;
-            case 0xa1: NEC_OP_MOV_AXDISP(); goto nec_dispatch_done;
+            case 0xa1:
+#ifdef WS_CPU_FINALLAP_WAIT_FASTPATH
+                if(nec_fast_finallap_wait_loop()) goto nec_dispatch_done;
+#endif
+                NEC_OP_MOV_AXDISP(); goto nec_dispatch_done;
             case 0xe2: NEC_OP_LOOP(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0xfe: NEC_OP_FEPRE(goto nec_dispatch_done); goto nec_dispatch_done;
             default:
