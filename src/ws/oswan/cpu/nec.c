@@ -195,10 +195,18 @@ static void nec_profile_print_branches(void)
         used[best] = 1;
         const nec_branch_profile_entry_t* entry = &nec_profile_branch[best];
         const UINT32 targetBase = (((UINT32)entry->cs) << 4) + entry->target;
-        printf("[WS][CPU][BRANCH] %04X:%04X<-%04X op=%02X n=%u bytes=%02X %02X %02X %02X %02X %02X\n",
+        const UINT32 fromBase = (((UINT32)entry->cs) << 4) + entry->from;
+        printf("[WS][CPU][BRANCH] %04X:%04X<-%04X op=%02X n=%u t=%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X f=%02X %02X %02X %02X\n",
                entry->cs, entry->target, entry->from, entry->op, entry->count,
                PEEKOP(targetBase + 0), PEEKOP(targetBase + 1), PEEKOP(targetBase + 2),
-               PEEKOP(targetBase + 3), PEEKOP(targetBase + 4), PEEKOP(targetBase + 5));
+               PEEKOP(targetBase + 3), PEEKOP(targetBase + 4), PEEKOP(targetBase + 5),
+               PEEKOP(targetBase + 6), PEEKOP(targetBase + 7), PEEKOP(targetBase + 8),
+               PEEKOP(targetBase + 9), PEEKOP(targetBase + 10), PEEKOP(targetBase + 11),
+               PEEKOP(targetBase + 12), PEEKOP(targetBase + 13), PEEKOP(targetBase + 14),
+               PEEKOP(targetBase + 15), PEEKOP(targetBase + 16), PEEKOP(targetBase + 17),
+               PEEKOP(targetBase + 18), PEEKOP(targetBase + 19), PEEKOP(targetBase + 20),
+               PEEKOP(targetBase + 21), PEEKOP(targetBase + 22), PEEKOP(targetBase + 23),
+               PEEKOP(fromBase + 0), PEEKOP(fromBase + 1), PEEKOP(fromBase + 2), PEEKOP(fromBase + 3));
     }
 
     memset(nec_profile_branch, 0, sizeof(nec_profile_branch));
@@ -207,6 +215,11 @@ static void nec_profile_print_branches(void)
 #define NEC_PROFILE_BRANCH(op, from, target, disp) nec_profile_branch_taken((op), (from), (target), (disp))
 #else
 #define NEC_PROFILE_BRANCH(op, from, target, disp) ((void)0)
+#endif
+
+#ifdef WS_CPU_DIGIMON_SCAN_FASTPATH
+static UINT32 nec_digimon_scan_fastpath_calls;
+static UINT32 nec_digimon_scan_fastpath_iters;
 #endif
 
 #if defined(WS_CPU_PROFILE) || defined(WS_CPU_BRANCH_PROFILE)
@@ -220,6 +233,15 @@ void nec_profile_log_and_reset(void)
 #endif
 #ifdef WS_CPU_BRANCH_PROFILE
     nec_profile_print_branches();
+#endif
+#ifdef WS_CPU_DIGIMON_SCAN_FASTPATH
+    if(nec_digimon_scan_fastpath_calls)
+    {
+        printf("[WS][CPU][DIGIMON] scan_fastpath calls=%u iters=%u\n",
+               nec_digimon_scan_fastpath_calls, nec_digimon_scan_fastpath_iters);
+        nec_digimon_scan_fastpath_calls = 0;
+        nec_digimon_scan_fastpath_iters = 0;
+    }
 #endif
 }
 #endif
@@ -236,6 +258,77 @@ void nec_profile_log_and_reset(void)
 static int no_interrupt;
 
 static UINT8 *parity_table;
+
+#ifdef WS_CPU_DIGIMON_SCAN_FASTPATH
+static NEC_CORE_CODE int nec_fast_digimon_scan_loop(void)
+{
+    static const UINT8 sig[] = {
+        0x03, 0xF3,             /* add si,bx */
+        0xFE, 0xC1,             /* inc cl */
+        0x80, 0xF9, 0x04,       /* cmp cl,04 */
+        0x72, 0x05,             /* jb +5 */
+        0x32, 0xC9,             /* xor cl,cl */
+        0xBE, 0xB4, 0x00,       /* mov si,00B4 */
+        0x8A, 0x2C,             /* mov ch,[si] */
+        0x0A, 0xED,             /* or ch,ch */
+        0x75, 0xEC              /* jnz 347E */
+    };
+
+    if(I.sregs[CS] != 0xA000 || I.ip != 0x347F || seg_prefix || no_interrupt)
+    {
+        return 0;
+    }
+
+    for(UINT32 i = 0; i < sizeof(sig); ++i)
+    {
+        if(PEEKOP(cs_base + 0x347E + i) != sig[i])
+        {
+            return 0;
+        }
+    }
+
+    UINT32 iterations = 0;
+    UINT32 cycles = 0;
+
+    while(iterations < 16)
+    {
+        I.regs.w[IX] = (UINT16)(I.regs.w[IX] + I.regs.w[BW]);
+
+        const UINT32 cl = (UINT8)(I.regs.b[CL] + 1);
+        I.regs.b[CL] = (UINT8)cl;
+        if(cl < 4)
+        {
+            cycles += 3; /* taken JB */
+        }
+        else
+        {
+            I.regs.b[CL] = 0;
+            I.regs.w[IX] = 0x00B4;
+        }
+
+        I.regs.b[CH] = GetMemB(DS, I.regs.w[IX]);
+        I.CarryVal = I.OverVal = I.AuxVal = 0;
+        SetSZPF_Byte(I.regs.b[CH]);
+
+        ++iterations;
+        cycles += 1; /* mov ch,[si] */
+
+        if(I.regs.b[CH] == 0)
+        {
+            I.ip = 0x3492;
+            break;
+        }
+
+        I.ip = 0x347E;
+        cycles += 3; /* taken JNZ */
+    }
+
+    nec_digimon_scan_fastpath_calls++;
+    nec_digimon_scan_fastpath_iters += iterations;
+    nec_ICount -= (int)(cycles + 1); /* dispatch epilogue adds one tick back */
+    return 1;
+}
+#endif
 
 /***************************************************************************/
 
@@ -1604,7 +1697,11 @@ NEC_CORE_CODE int nec_execute(int cycles)
         UINT32 op = FETCHOP;
         NEC_PROFILE_OP(op);
         switch(op) {
-            case 0x03: NEC_OP_ADD_R16W(goto nec_dispatch_done); goto nec_dispatch_done;
+            case 0x03:
+#ifdef WS_CPU_DIGIMON_SCAN_FASTPATH
+                if(nec_fast_digimon_scan_loop()) goto nec_dispatch_done;
+#endif
+                NEC_OP_ADD_R16W(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x0a: NEC_OP_OR_R8B(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x3b: NEC_OP_CMP_R16W(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x72: NEC_OP_JC(goto nec_dispatch_done); goto nec_dispatch_done;
