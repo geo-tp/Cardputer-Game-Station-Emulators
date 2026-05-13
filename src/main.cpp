@@ -30,6 +30,12 @@
 #include "share/input.h"
 #include "share/emu_log_cpp.h"
 
+#if defined(CONFIG_BT_ENABLED)
+extern "C" bool btInUse(void) {
+  return false;
+}
+#endif
+
 void setup() {
   // Set high priority for the current task (where the emulator will run)
   vTaskPrioritySet(NULL, 19);
