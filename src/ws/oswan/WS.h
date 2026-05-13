@@ -62,6 +62,21 @@ typedef struct WsCoreStats {
     unsigned int vblankIrqs;
     unsigned int lineIrqs;
     unsigned int sramBankSwitches;
+#ifdef WS_RENDER_MICROBENCH
+    unsigned int renderLines;
+    unsigned int renderClearUs;
+    unsigned int renderBgUs;
+    unsigned int renderFgUs;
+    unsigned int renderSpriteWindowUs;
+    unsigned int renderSpriteScanUs;
+    unsigned int renderSpriteDrawUs;
+    unsigned int renderBgDecodeCalls;
+    unsigned int renderBgDecodeUs;
+    unsigned int renderFgDecodeCalls;
+    unsigned int renderFgDecodeUs;
+    unsigned int renderSpriteDecodeCalls;
+    unsigned int renderSpriteDecodeUs;
+#endif
     int frameSkip;
 } WsCoreStats;
 #endif
@@ -88,6 +103,14 @@ void WsBenchSpriteLine(unsigned int candidates, unsigned int visible,
                        unsigned int clipRight, unsigned int windowSkips,
                        unsigned int prioritySkips, unsigned int transparentSkips,
                        unsigned int limited);
+#ifdef WS_RENDER_MICROBENCH
+void WsBenchRenderLine(unsigned int clearUs, unsigned int bgUs,
+                       unsigned int fgUs, unsigned int spriteWindowUs,
+                       unsigned int spriteScanUs, unsigned int spriteDrawUs,
+                       unsigned int bgDecodeCalls, unsigned int bgDecodeUs,
+                       unsigned int fgDecodeCalls, unsigned int fgDecodeUs,
+                       unsigned int spriteDecodeCalls, unsigned int spriteDecodeUs);
+#endif
 #endif
 void WsSplash(void);
 void WsCpyPdata(BYTE* dst);

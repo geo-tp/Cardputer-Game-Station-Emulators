@@ -507,6 +507,30 @@ void WsBenchSpriteLine(unsigned int candidates, unsigned int visible,
     s_coreStats.spritePrioritySkips += prioritySkips;
     s_coreStats.spriteTransparentSkips += transparentSkips;
 }
+
+#ifdef WS_RENDER_MICROBENCH
+void WsBenchRenderLine(unsigned int clearUs, unsigned int bgUs,
+                       unsigned int fgUs, unsigned int spriteWindowUs,
+                       unsigned int spriteScanUs, unsigned int spriteDrawUs,
+                       unsigned int bgDecodeCalls, unsigned int bgDecodeUs,
+                       unsigned int fgDecodeCalls, unsigned int fgDecodeUs,
+                       unsigned int spriteDecodeCalls, unsigned int spriteDecodeUs)
+{
+    s_coreStats.renderLines++;
+    s_coreStats.renderClearUs += clearUs;
+    s_coreStats.renderBgUs += bgUs;
+    s_coreStats.renderFgUs += fgUs;
+    s_coreStats.renderSpriteWindowUs += spriteWindowUs;
+    s_coreStats.renderSpriteScanUs += spriteScanUs;
+    s_coreStats.renderSpriteDrawUs += spriteDrawUs;
+    s_coreStats.renderBgDecodeCalls += bgDecodeCalls;
+    s_coreStats.renderBgDecodeUs += bgDecodeUs;
+    s_coreStats.renderFgDecodeCalls += fgDecodeCalls;
+    s_coreStats.renderFgDecodeUs += fgDecodeUs;
+    s_coreStats.renderSpriteDecodeCalls += spriteDecodeCalls;
+    s_coreStats.renderSpriteDecodeUs += spriteDecodeUs;
+}
+#endif
 #endif
 
 static void WsRefreshSpriteTable(void)

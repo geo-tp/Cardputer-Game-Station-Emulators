@@ -15,6 +15,28 @@ $Rev: 71 $
 #include "WS.h"
 #include "WSSegment.h"
 
+#if defined(BENCHMARK_LOGS) && defined(WS_RENDER_MICROBENCH)
+#define WS_RENDER_MICROBENCH_ON 1
+extern unsigned long SDL_UXTimerRead(void);
+
+static inline unsigned int WsRenderElapsedUs(unsigned long start)
+{
+    return (unsigned int)(SDL_UXTimerRead() - start);
+}
+
+#define WS_RENDER_DECODE_ROW(calls, usec, index, data, packedMode, color16, hrev) \
+    do { \
+        unsigned long ws_render_decode_t0 = SDL_UXTimerRead(); \
+        DecodeTileRow((index), (data), (packedMode), (color16), (hrev)); \
+        (usec) += WsRenderElapsedUs(ws_render_decode_t0); \
+        (calls)++; \
+    } while (0)
+#else
+#define WS_RENDER_MICROBENCH_ON 0
+#define WS_RENDER_DECODE_ROW(calls, usec, index, data, packedMode, color16, hrev) \
+    DecodeTileRow((index), (data), (packedMode), (color16), (hrev))
+#endif
+
 #define MAP_TILE 0x01FF
 #define MAP_PAL  0x1E00
 #define MAP_BANK 0x2000
@@ -215,9 +237,27 @@ WS_PPU_CODE void RefreshLine(int Line)
     unsigned int sprPrioritySkips = 0;
     unsigned int sprTransparentSkips = 0;
 #endif
+#if WS_RENDER_MICROBENCH_ON
+    unsigned int renderClearUs = 0;
+    unsigned int renderBgUs = 0;
+    unsigned int renderFgUs = 0;
+    unsigned int renderSpriteWindowUs = 0;
+    unsigned int renderSpriteScanUs = 0;
+    unsigned int renderSpriteDrawUs = 0;
+    unsigned int bgDecodeCalls = 0;
+    unsigned int bgDecodeUs = 0;
+    unsigned int fgDecodeCalls = 0;
+    unsigned int fgDecodeUs = 0;
+    unsigned int spriteDecodeCalls = 0;
+    unsigned int spriteDecodeUs = 0;
+    unsigned long renderSectionStart;
+#endif
     pSBuf = FrameBuffer + Line * SCREEN_WIDTH;
     pSWrBuf = pSBuf;
 
+#if WS_RENDER_MICROBENCH_ON
+    renderSectionStart = SDL_UXTimerRead();
+#endif
     if(LCDSLP & 0x01)
     {
         if(COLCTL & 0xE0)
@@ -239,8 +279,24 @@ WS_PPU_CODE void RefreshLine(int Line)
             *pSWrBuf++ = BaseCol;
         }
     }
-    if(!(LCDSLP & 0x01)) return;
+#if WS_RENDER_MICROBENCH_ON
+    renderClearUs += WsRenderElapsedUs(renderSectionStart);
+#endif
+    if(!(LCDSLP & 0x01))
+    {
+#if WS_RENDER_MICROBENCH_ON
+        WsBenchRenderLine(renderClearUs, renderBgUs, renderFgUs,
+                          renderSpriteWindowUs, renderSpriteScanUs,
+                          renderSpriteDrawUs, bgDecodeCalls, bgDecodeUs,
+                          fgDecodeCalls, fgDecodeUs, spriteDecodeCalls,
+                          spriteDecodeUs);
+#endif
+        return;
+    }
 /*********************************************************************/
+#if WS_RENDER_MICROBENCH_ON
+    renderSectionStart = SDL_UXTimerRead();
+#endif
     if((DSPCTL & 0x01) && Layer[0])                                 //BG layer
     {
         OffsetX = SCR1X & 0x07;
@@ -298,7 +354,8 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
 
-            DecodeTileRow(index, pbTData, packedMode, color16, TMap & MAP_HREV);
+            WS_RENDER_DECODE_ROW(bgDecodeCalls, bgDecodeUs, index, pbTData,
+                                 packedMode, color16, TMap & MAP_HREV);
             const int zeroTransparent = color16 || (TMap & 0x0800);
 
             PalIndex = (TMap & MAP_PAL) >> 9;
@@ -344,7 +401,13 @@ WS_PPU_CODE void RefreshLine(int Line)
             }
         }
     }
+#if WS_RENDER_MICROBENCH_ON
+    renderBgUs += WsRenderElapsedUs(renderSectionStart);
+#endif
 /*********************************************************************/
+#if WS_RENDER_MICROBENCH_ON
+    renderSectionStart = SDL_UXTimerRead();
+#endif
     memset(ZBuf, 0, sizeof(ZBuf));
     if((DSPCTL & 0x02) && Layer[1])          //FG layer�\��
     {
@@ -437,7 +500,8 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
 
-            DecodeTileRow(index, pbTData, packedMode, color16, TMap & MAP_HREV);
+            WS_RENDER_DECODE_ROW(fgDecodeCalls, fgDecodeUs, index, pbTData,
+                                 packedMode, color16, TMap & MAP_HREV);
             const int zeroTransparent = color16 || (TMap & 0x0800);
 
             PalIndex = (TMap & MAP_PAL) >> 9;
@@ -499,9 +563,15 @@ WS_PPU_CODE void RefreshLine(int Line)
             pW++;pZ++;
         }
     }
+#if WS_RENDER_MICROBENCH_ON
+    renderFgUs += WsRenderElapsedUs(renderSectionStart);
+#endif
 /*********************************************************************/
     if((DSPCTL & 0x04) && Layer[2])          //sprite
     {
+#if WS_RENDER_MICROBENCH_ON
+        renderSectionStart = SDL_UXTimerRead();
+#endif
         if (DSPCTL & 0x08)      //sprite window
         {
             memset(WBuf + 8, 1, LCD_MAIN_W);
@@ -515,6 +585,10 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
         }
+#if WS_RENDER_MICROBENCH_ON
+        renderSpriteWindowUs += WsRenderElapsedUs(renderSectionStart);
+        renderSectionStart = SDL_UXTimerRead();
+#endif
 
         int lineSpriteCount = 0;
         BYTE* lineSprites[32];
@@ -541,6 +615,10 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
         }
+#if WS_RENDER_MICROBENCH_ON
+        renderSpriteScanUs += WsRenderElapsedUs(renderSectionStart);
+        renderSectionStart = SDL_UXTimerRead();
+#endif
 
         for (int spriteIndex = lineSpriteCount - 1; spriteIndex >= 0; --spriteIndex)
         {
@@ -604,7 +682,8 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
 
-            DecodeTileRow(index, pbTData, packedMode, color16, TMap & SPR_HREV);
+            WS_RENDER_DECODE_ROW(spriteDecodeCalls, spriteDecodeUs, index, pbTData,
+                                 packedMode, color16, TMap & SPR_HREV);
             const int zeroTransparent = color16 || (TMap & 0x0800);
 
             pW = WBuf + 8 + sprX + firstPixel;
@@ -659,11 +738,21 @@ WS_PPU_CODE void RefreshLine(int Line)
 #endif
             }
         }
+#if WS_RENDER_MICROBENCH_ON
+        renderSpriteDrawUs += WsRenderElapsedUs(renderSectionStart);
+#endif
     }
 #ifdef BENCHMARK_LOGS
     WsBenchSpriteLine(sprCandidates, sprVisible, sprPixels, sprClipLeft,
                       sprClipRight, sprWindowSkips, sprPrioritySkips,
                       sprTransparentSkips, sprLimited);
+#endif
+#if WS_RENDER_MICROBENCH_ON
+    WsBenchRenderLine(renderClearUs, renderBgUs, renderFgUs,
+                      renderSpriteWindowUs, renderSpriteScanUs,
+                      renderSpriteDrawUs, bgDecodeCalls, bgDecodeUs,
+                      fgDecodeCalls, fgDecodeUs, spriteDecodeCalls,
+                      spriteDecodeUs);
 #endif
 }
 

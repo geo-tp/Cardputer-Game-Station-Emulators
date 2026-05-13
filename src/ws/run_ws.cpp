@@ -134,6 +134,30 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
               coreStats.frames, coreStats.cpuSteps, coreStats.refreshLines,
               coreStats.paintRequests, coreStats.frameSkip, coreStats.apuTicks,
               coreStats.gdmaTransfers, coreStats.gdmaBytes);
+#if defined(WS_RENDER_MICROBENCH)
+      if (coreStats.renderLines) {
+        const double renderLines = (double)coreStats.renderLines;
+        const double bgDecodeAvgUs = coreStats.renderBgDecodeCalls ? (double)coreStats.renderBgDecodeUs / (double)coreStats.renderBgDecodeCalls : 0.0;
+        const double fgDecodeAvgUs = coreStats.renderFgDecodeCalls ? (double)coreStats.renderFgDecodeUs / (double)coreStats.renderFgDecodeCalls : 0.0;
+        const double spriteDecodeAvgUs = coreStats.renderSpriteDecodeCalls ? (double)coreStats.renderSpriteDecodeUs / (double)coreStats.renderSpriteDecodeCalls : 0.0;
+        EMU_LOG("[WS][RND] lines=%u avg_us clear/bg/fg/swin/sscan/sdraw=%.1f/%.1f/%.1f/%.1f/%.1f/%.1f\n",
+                coreStats.renderLines,
+                (double)coreStats.renderClearUs / renderLines,
+                (double)coreStats.renderBgUs / renderLines,
+                (double)coreStats.renderFgUs / renderLines,
+                (double)coreStats.renderSpriteWindowUs / renderLines,
+                (double)coreStats.renderSpriteScanUs / renderLines,
+                (double)coreStats.renderSpriteDrawUs / renderLines);
+        EMU_LOG("[WS][RND] decode calls bg/fg/spr=%u/%u/%u avg_us=%.2f/%.2f/%.2f total_ms=%.1f/%.1f/%.1f\n",
+                coreStats.renderBgDecodeCalls,
+                coreStats.renderFgDecodeCalls,
+                coreStats.renderSpriteDecodeCalls,
+                bgDecodeAvgUs, fgDecodeAvgUs, spriteDecodeAvgUs,
+                (double)coreStats.renderBgDecodeUs / 1000.0,
+                (double)coreStats.renderFgDecodeUs / 1000.0,
+                (double)coreStats.renderSpriteDecodeUs / 1000.0);
+      }
+#endif
       EMU_LOG("[WS][BENCH] irq key=%u htm=%u vtm=%u vblank=%u line=%u\n",
               coreStats.keyIrqs, coreStats.htimerIrqs, coreStats.vtimerIrqs,
               coreStats.vblankIrqs, coreStats.lineIrqs);
