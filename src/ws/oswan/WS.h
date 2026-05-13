@@ -62,23 +62,23 @@ typedef struct WsCoreStats {
     unsigned int vblankIrqs;
     unsigned int lineIrqs;
     unsigned int sramBankSwitches;
-#ifdef WS_RENDER_MICROBENCH
+#ifdef WS_RENDER_PROFILE
     unsigned int renderLines;
     unsigned int renderClearUs;
+    unsigned int renderClearMaxUs;
     unsigned int renderBgUs;
+    unsigned int renderBgMaxUs;
     unsigned int renderFgUs;
+    unsigned int renderFgMaxUs;
     unsigned int renderSpriteWindowUs;
+    unsigned int renderSpriteWindowMaxUs;
     unsigned int renderSpriteScanUs;
+    unsigned int renderSpriteScanMaxUs;
     unsigned int renderSpriteDrawUs;
+    unsigned int renderSpriteDrawMaxUs;
     unsigned int renderBgDecodeCalls;
-    unsigned int renderBgDecodeSamples;
-    unsigned int renderBgDecodeUs;
     unsigned int renderFgDecodeCalls;
-    unsigned int renderFgDecodeSamples;
-    unsigned int renderFgDecodeUs;
     unsigned int renderSpriteDecodeCalls;
-    unsigned int renderSpriteDecodeSamples;
-    unsigned int renderSpriteDecodeUs;
 #endif
     int frameSkip;
 } WsCoreStats;
@@ -106,16 +106,12 @@ void WsBenchSpriteLine(unsigned int candidates, unsigned int visible,
                        unsigned int clipRight, unsigned int windowSkips,
                        unsigned int prioritySkips, unsigned int transparentSkips,
                        unsigned int limited);
-#ifdef WS_RENDER_MICROBENCH
+#ifdef WS_RENDER_PROFILE
 void WsBenchRenderLine(unsigned int clearUs, unsigned int bgUs,
                        unsigned int fgUs, unsigned int spriteWindowUs,
                        unsigned int spriteScanUs, unsigned int spriteDrawUs,
-                       unsigned int bgDecodeCalls, unsigned int bgDecodeSamples,
-                       unsigned int bgDecodeUs, unsigned int fgDecodeCalls,
-                       unsigned int fgDecodeSamples, unsigned int fgDecodeUs,
-                       unsigned int spriteDecodeCalls,
-                       unsigned int spriteDecodeSamples,
-                       unsigned int spriteDecodeUs);
+                       unsigned int bgDecodeCalls, unsigned int fgDecodeCalls,
+                       unsigned int spriteDecodeCalls);
 #endif
 #endif
 void WsSplash(void);

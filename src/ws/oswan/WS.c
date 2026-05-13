@@ -508,33 +508,34 @@ void WsBenchSpriteLine(unsigned int candidates, unsigned int visible,
     s_coreStats.spriteTransparentSkips += transparentSkips;
 }
 
-#ifdef WS_RENDER_MICROBENCH
+#ifdef WS_RENDER_PROFILE
+static inline unsigned int WsBenchMax(unsigned int oldValue, unsigned int newValue)
+{
+    return newValue > oldValue ? newValue : oldValue;
+}
+
 void WsBenchRenderLine(unsigned int clearUs, unsigned int bgUs,
                        unsigned int fgUs, unsigned int spriteWindowUs,
                        unsigned int spriteScanUs, unsigned int spriteDrawUs,
-                       unsigned int bgDecodeCalls, unsigned int bgDecodeSamples,
-                       unsigned int bgDecodeUs, unsigned int fgDecodeCalls,
-                       unsigned int fgDecodeSamples, unsigned int fgDecodeUs,
-                       unsigned int spriteDecodeCalls,
-                       unsigned int spriteDecodeSamples,
-                       unsigned int spriteDecodeUs)
+                       unsigned int bgDecodeCalls, unsigned int fgDecodeCalls,
+                       unsigned int spriteDecodeCalls)
 {
     s_coreStats.renderLines++;
     s_coreStats.renderClearUs += clearUs;
+    s_coreStats.renderClearMaxUs = WsBenchMax(s_coreStats.renderClearMaxUs, clearUs);
     s_coreStats.renderBgUs += bgUs;
+    s_coreStats.renderBgMaxUs = WsBenchMax(s_coreStats.renderBgMaxUs, bgUs);
     s_coreStats.renderFgUs += fgUs;
+    s_coreStats.renderFgMaxUs = WsBenchMax(s_coreStats.renderFgMaxUs, fgUs);
     s_coreStats.renderSpriteWindowUs += spriteWindowUs;
+    s_coreStats.renderSpriteWindowMaxUs = WsBenchMax(s_coreStats.renderSpriteWindowMaxUs, spriteWindowUs);
     s_coreStats.renderSpriteScanUs += spriteScanUs;
+    s_coreStats.renderSpriteScanMaxUs = WsBenchMax(s_coreStats.renderSpriteScanMaxUs, spriteScanUs);
     s_coreStats.renderSpriteDrawUs += spriteDrawUs;
+    s_coreStats.renderSpriteDrawMaxUs = WsBenchMax(s_coreStats.renderSpriteDrawMaxUs, spriteDrawUs);
     s_coreStats.renderBgDecodeCalls += bgDecodeCalls;
-    s_coreStats.renderBgDecodeSamples += bgDecodeSamples;
-    s_coreStats.renderBgDecodeUs += bgDecodeUs;
     s_coreStats.renderFgDecodeCalls += fgDecodeCalls;
-    s_coreStats.renderFgDecodeSamples += fgDecodeSamples;
-    s_coreStats.renderFgDecodeUs += fgDecodeUs;
     s_coreStats.renderSpriteDecodeCalls += spriteDecodeCalls;
-    s_coreStats.renderSpriteDecodeSamples += spriteDecodeSamples;
-    s_coreStats.renderSpriteDecodeUs += spriteDecodeUs;
 }
 #endif
 #endif
@@ -563,6 +564,7 @@ static void WsRefreshSpriteTable(void)
     }
     SprTTMap = SprTMap;
     SprETMap = bytes > 0 ? SprTMap + bytes - 4 : NULL;
+    WsPrecomputeSpriteTable(count);
 
 #ifdef BENCHMARK_LOGS
     s_coreStats.spriteTableBase = (unsigned int)tableBase;

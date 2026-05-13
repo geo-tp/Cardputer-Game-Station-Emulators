@@ -134,32 +134,27 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
               coreStats.frames, coreStats.cpuSteps, coreStats.refreshLines,
               coreStats.paintRequests, coreStats.frameSkip, coreStats.apuTicks,
               coreStats.gdmaTransfers, coreStats.gdmaBytes);
-#if defined(WS_RENDER_MICROBENCH)
+#if defined(WS_RENDER_PROFILE)
       if (coreStats.renderLines) {
         const double renderLines = (double)coreStats.renderLines;
-        const double bgDecodeAvgUs = coreStats.renderBgDecodeSamples ? (double)coreStats.renderBgDecodeUs / (double)coreStats.renderBgDecodeSamples : 0.0;
-        const double fgDecodeAvgUs = coreStats.renderFgDecodeSamples ? (double)coreStats.renderFgDecodeUs / (double)coreStats.renderFgDecodeSamples : 0.0;
-        const double spriteDecodeAvgUs = coreStats.renderSpriteDecodeSamples ? (double)coreStats.renderSpriteDecodeUs / (double)coreStats.renderSpriteDecodeSamples : 0.0;
-        const double bgDecodeEstMs = bgDecodeAvgUs * (double)coreStats.renderBgDecodeCalls / 1000.0;
-        const double fgDecodeEstMs = fgDecodeAvgUs * (double)coreStats.renderFgDecodeCalls / 1000.0;
-        const double spriteDecodeEstMs = spriteDecodeAvgUs * (double)coreStats.renderSpriteDecodeCalls / 1000.0;
-        EMU_LOG("[WS][RND] lines=%u avg_us clear/bg/fg/swin/sscan/sdraw=%.1f/%.1f/%.1f/%.1f/%.1f/%.1f\n",
+        EMU_LOG("[WS][RND] lines=%u avg_us clear/bg/fg/swin/sscan/sdraw=%.1f/%.1f/%.1f/%.1f/%.1f/%.1f max_us=%u/%u/%u/%u/%u/%u\n",
                 coreStats.renderLines,
                 (double)coreStats.renderClearUs / renderLines,
                 (double)coreStats.renderBgUs / renderLines,
                 (double)coreStats.renderFgUs / renderLines,
                 (double)coreStats.renderSpriteWindowUs / renderLines,
                 (double)coreStats.renderSpriteScanUs / renderLines,
-                (double)coreStats.renderSpriteDrawUs / renderLines);
-        EMU_LOG("[WS][RND] decode calls bg/fg/spr=%u/%u/%u samples=%u/%u/%u avg_us=%.2f/%.2f/%.2f est_ms=%.1f/%.1f/%.1f\n",
+                (double)coreStats.renderSpriteDrawUs / renderLines,
+                coreStats.renderClearMaxUs,
+                coreStats.renderBgMaxUs,
+                coreStats.renderFgMaxUs,
+                coreStats.renderSpriteWindowMaxUs,
+                coreStats.renderSpriteScanMaxUs,
+                coreStats.renderSpriteDrawMaxUs);
+        EMU_LOG("[WS][RND] decode calls bg/fg/spr=%u/%u/%u\n",
                 coreStats.renderBgDecodeCalls,
                 coreStats.renderFgDecodeCalls,
-                coreStats.renderSpriteDecodeCalls,
-                coreStats.renderBgDecodeSamples,
-                coreStats.renderFgDecodeSamples,
-                coreStats.renderSpriteDecodeSamples,
-                bgDecodeAvgUs, fgDecodeAvgUs, spriteDecodeAvgUs,
-                bgDecodeEstMs, fgDecodeEstMs, spriteDecodeEstMs);
+                coreStats.renderSpriteDecodeCalls);
       }
 #endif
       EMU_LOG("[WS][BENCH] irq key=%u htm=%u vtm=%u vblank=%u line=%u\n",

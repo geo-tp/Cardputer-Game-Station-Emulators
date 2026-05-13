@@ -15,6 +15,13 @@ extern BYTE *Scr2TMap;
 extern BYTE *SprTTMap;
 extern BYTE *SprETMap;
 extern BYTE *SprTMap;
+typedef struct WsSpriteMeta {
+    WORD map;
+    short x;
+    short y;
+} WsSpriteMeta;
+extern WsSpriteMeta SprMeta[128];
+extern int SprMetaCount;
 extern WORD (*Palette)[16];
 extern WORD MonoColor[8];
 extern WORD *FrameBuffer;
@@ -24,6 +31,7 @@ extern int Segment[11];
 
 void AllocateBuffers(void);
 void SetPalette(int addr);
+void WsPrecomputeSpriteTable(int count);
 void RefreshLine(int Line);
 void RenderSegment(void);
 void RenderSleep(void);

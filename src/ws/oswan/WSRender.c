@@ -15,8 +15,8 @@ $Rev: 71 $
 #include "WS.h"
 #include "WSSegment.h"
 
-#if defined(BENCHMARK_LOGS) && defined(WS_RENDER_MICROBENCH)
-#define WS_RENDER_MICROBENCH_ON 1
+#if defined(BENCHMARK_LOGS) && defined(WS_RENDER_PROFILE)
+#define WS_RENDER_PROFILE_ON 1
 extern unsigned long SDL_UXTimerRead(void);
 
 static inline unsigned int WsRenderElapsedUs(unsigned long start)
@@ -24,25 +24,14 @@ static inline unsigned int WsRenderElapsedUs(unsigned long start)
     return (unsigned int)(SDL_UXTimerRead() - start);
 }
 
-#define WS_RENDER_DECODE_SAMPLE_MASK 63u
-#define WS_RENDER_DECODE_ROW(calls, samples, usec, index, data, packedMode, color16, hrev) \
+#define WS_RENDER_DECODE_ROW(calls, index, data, packedMode, color16, hrev) \
     do { \
-        const unsigned int ws_render_decode_call = (calls)++; \
-        if((ws_render_decode_call & WS_RENDER_DECODE_SAMPLE_MASK) == 0u) \
-        { \
-            unsigned long ws_render_decode_t0 = SDL_UXTimerRead(); \
-            DecodeTileRow((index), (data), (packedMode), (color16), (hrev)); \
-            (usec) += WsRenderElapsedUs(ws_render_decode_t0); \
-            (samples)++; \
-        } \
-        else \
-        { \
-            DecodeTileRow((index), (data), (packedMode), (color16), (hrev)); \
-        } \
+        (calls)++; \
+        DecodeTileRow((index), (data), (packedMode), (color16), (hrev)); \
     } while (0)
 #else
-#define WS_RENDER_MICROBENCH_ON 0
-#define WS_RENDER_DECODE_ROW(calls, samples, usec, index, data, packedMode, color16, hrev) \
+#define WS_RENDER_PROFILE_ON 0
+#define WS_RENDER_DECODE_ROW(calls, index, data, packedMode, color16, hrev) \
     DecodeTileRow((index), (data), (packedMode), (color16), (hrev))
 #endif
 
@@ -66,6 +55,8 @@ BYTE *Scr2TMap;
 BYTE *SprTTMap;
 BYTE *SprETMap;
 BYTE* SprTMap = NULL;
+WsSpriteMeta SprMeta[128];
+int SprMetaCount = 0;
 WORD* FrameBuffer = NULL;
 static WORD* FrameBufferAlloc = NULL;
 WORD (*Palette)[16] = NULL;
@@ -182,11 +173,37 @@ void AllocateBuffers(void) {
 #endif
 }
 
+void WsPrecomputeSpriteTable(int count)
+{
+    if(!SprTMap)
+    {
+        SprMetaCount = 0;
+        return;
+    }
+    if(count < 0)
+    {
+        count = 0;
+    }
+    if(count > 128)
+    {
+        count = 128;
+    }
+    SprMetaCount = count;
+    for(int i = 0; i < count; ++i)
+    {
+        const BYTE* spr = SprTMap + (i << 2);
+        SprMeta[i].map = (WORD)(spr[0] | (spr[1] << 8));
+        SprMeta[i].y = (short)((spr[2] > 0xF8) ? (int)spr[2] - 0x100 : (int)spr[2]);
+        SprMeta[i].x = (short)((spr[3] > 0xF8) ? (int)spr[3] - 0x100 : (int)spr[3]);
+    }
+}
+
 void FreeBuffers(void) {
     if (SprTMap) {
         free(SprTMap);
         SprTMap = NULL;
     }
+    SprMetaCount = 0;
     if (FrameBufferAlloc) {
         free(FrameBufferAlloc);
         FrameBufferAlloc = NULL;
@@ -246,7 +263,7 @@ WS_PPU_CODE void RefreshLine(int Line)
     unsigned int sprPrioritySkips = 0;
     unsigned int sprTransparentSkips = 0;
 #endif
-#if WS_RENDER_MICROBENCH_ON
+#if WS_RENDER_PROFILE_ON
     unsigned int renderClearUs = 0;
     unsigned int renderBgUs = 0;
     unsigned int renderFgUs = 0;
@@ -254,20 +271,14 @@ WS_PPU_CODE void RefreshLine(int Line)
     unsigned int renderSpriteScanUs = 0;
     unsigned int renderSpriteDrawUs = 0;
     unsigned int bgDecodeCalls = 0;
-    unsigned int bgDecodeSamples = 0;
-    unsigned int bgDecodeUs = 0;
     unsigned int fgDecodeCalls = 0;
-    unsigned int fgDecodeSamples = 0;
-    unsigned int fgDecodeUs = 0;
     unsigned int spriteDecodeCalls = 0;
-    unsigned int spriteDecodeSamples = 0;
-    unsigned int spriteDecodeUs = 0;
     unsigned long renderSectionStart;
 #endif
     pSBuf = FrameBuffer + Line * SCREEN_WIDTH;
     pSWrBuf = pSBuf;
 
-#if WS_RENDER_MICROBENCH_ON
+#if WS_RENDER_PROFILE_ON
     renderSectionStart = SDL_UXTimerRead();
 #endif
     if(LCDSLP & 0x01)
@@ -291,23 +302,21 @@ WS_PPU_CODE void RefreshLine(int Line)
             *pSWrBuf++ = BaseCol;
         }
     }
-#if WS_RENDER_MICROBENCH_ON
+#if WS_RENDER_PROFILE_ON
     renderClearUs += WsRenderElapsedUs(renderSectionStart);
 #endif
     if(!(LCDSLP & 0x01))
     {
-#if WS_RENDER_MICROBENCH_ON
+#if WS_RENDER_PROFILE_ON
         WsBenchRenderLine(renderClearUs, renderBgUs, renderFgUs,
                           renderSpriteWindowUs, renderSpriteScanUs,
-                          renderSpriteDrawUs, bgDecodeCalls, bgDecodeSamples,
-                          bgDecodeUs, fgDecodeCalls, fgDecodeSamples,
-                          fgDecodeUs, spriteDecodeCalls, spriteDecodeSamples,
-                          spriteDecodeUs);
+                          renderSpriteDrawUs, bgDecodeCalls, fgDecodeCalls,
+                          spriteDecodeCalls);
 #endif
         return;
     }
 /*********************************************************************/
-#if WS_RENDER_MICROBENCH_ON
+#if WS_RENDER_PROFILE_ON
     renderSectionStart = SDL_UXTimerRead();
 #endif
     if((DSPCTL & 0x01) && Layer[0])                                 //BG layer
@@ -367,9 +376,8 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
 
-            WS_RENDER_DECODE_ROW(bgDecodeCalls, bgDecodeSamples, bgDecodeUs,
-                                 index, pbTData, packedMode, color16,
-                                 TMap & MAP_HREV);
+            WS_RENDER_DECODE_ROW(bgDecodeCalls, index, pbTData, packedMode,
+                                 color16, TMap & MAP_HREV);
             const int zeroTransparent = color16 || (TMap & 0x0800);
 
             PalIndex = (TMap & MAP_PAL) >> 9;
@@ -415,11 +423,11 @@ WS_PPU_CODE void RefreshLine(int Line)
             }
         }
     }
-#if WS_RENDER_MICROBENCH_ON
+#if WS_RENDER_PROFILE_ON
     renderBgUs += WsRenderElapsedUs(renderSectionStart);
 #endif
 /*********************************************************************/
-#if WS_RENDER_MICROBENCH_ON
+#if WS_RENDER_PROFILE_ON
     renderSectionStart = SDL_UXTimerRead();
 #endif
     memset(ZBuf, 0, sizeof(ZBuf));
@@ -514,9 +522,8 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
 
-            WS_RENDER_DECODE_ROW(fgDecodeCalls, fgDecodeSamples, fgDecodeUs,
-                                 index, pbTData, packedMode, color16,
-                                 TMap & MAP_HREV);
+            WS_RENDER_DECODE_ROW(fgDecodeCalls, index, pbTData, packedMode,
+                                 color16, TMap & MAP_HREV);
             const int zeroTransparent = color16 || (TMap & 0x0800);
 
             PalIndex = (TMap & MAP_PAL) >> 9;
@@ -578,13 +585,13 @@ WS_PPU_CODE void RefreshLine(int Line)
             pW++;pZ++;
         }
     }
-#if WS_RENDER_MICROBENCH_ON
+#if WS_RENDER_PROFILE_ON
     renderFgUs += WsRenderElapsedUs(renderSectionStart);
 #endif
 /*********************************************************************/
     if((DSPCTL & 0x04) && Layer[2])          //sprite
     {
-#if WS_RENDER_MICROBENCH_ON
+#if WS_RENDER_PROFILE_ON
         renderSectionStart = SDL_UXTimerRead();
 #endif
         if (DSPCTL & 0x08)      //sprite window
@@ -600,27 +607,28 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
         }
-#if WS_RENDER_MICROBENCH_ON
+#if WS_RENDER_PROFILE_ON
         renderSpriteWindowUs += WsRenderElapsedUs(renderSectionStart);
         renderSectionStart = SDL_UXTimerRead();
 #endif
 
         int lineSpriteCount = 0;
-        BYTE* lineSprites[32];
-        if (SprETMap && SprETMap >= SprTTMap)
+        const WsSpriteMeta* lineSprites[32];
+        if (SprMetaCount > 0)
         {
-            for (pbTMap = SprTTMap; pbTMap <= SprETMap; pbTMap += 4)
+            for (int metaIndex = 0; metaIndex < SprMetaCount; ++metaIndex)
             {
+                const WsSpriteMeta* spriteMeta = &SprMeta[metaIndex];
 #ifdef BENCHMARK_LOGS
                 sprCandidates++;
 #endif
-			int testY = (pbTMap[2] > 0xF8) ? (int)pbTMap[2] - 0x100 : (int)pbTMap[2];
+                const int testY = spriteMeta->y;
                 if (Line < testY)
                     continue;
                 if (Line >= testY + 8)
                     continue;
 
-                lineSprites[lineSpriteCount++] = pbTMap;
+                lineSprites[lineSpriteCount++] = spriteMeta;
                 if (lineSpriteCount == 32)
                 {
 #ifdef BENCHMARK_LOGS
@@ -630,19 +638,18 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
         }
-#if WS_RENDER_MICROBENCH_ON
+#if WS_RENDER_PROFILE_ON
         renderSpriteScanUs += WsRenderElapsedUs(renderSectionStart);
         renderSectionStart = SDL_UXTimerRead();
 #endif
 
         for (int spriteIndex = lineSpriteCount - 1; spriteIndex >= 0; --spriteIndex)
         {
-            pbTMap = lineSprites[spriteIndex];
-            TMap = pbTMap[0];
-            TMap |= pbTMap[1] << 8;
+            const WsSpriteMeta* spriteMeta = lineSprites[spriteIndex];
+            TMap = spriteMeta->map;
 
-		int sprY = (pbTMap[2] > 0xF8) ? (int)pbTMap[2] - 0x100 : (int)pbTMap[2];
-		int sprX = (pbTMap[3] > 0xF8) ? (int)pbTMap[3] - 0x100 : (int)pbTMap[3];
+            const int sprY = spriteMeta->y;
+            const int sprX = spriteMeta->x;
 
             if (sprX <= -8)
                 continue;
@@ -697,8 +704,7 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
 
-            WS_RENDER_DECODE_ROW(spriteDecodeCalls, spriteDecodeSamples,
-                                 spriteDecodeUs, index, pbTData, packedMode,
+            WS_RENDER_DECODE_ROW(spriteDecodeCalls, index, pbTData, packedMode,
                                  color16, TMap & SPR_HREV);
             const int zeroTransparent = color16 || (TMap & 0x0800);
 
@@ -754,7 +760,7 @@ WS_PPU_CODE void RefreshLine(int Line)
 #endif
             }
         }
-#if WS_RENDER_MICROBENCH_ON
+#if WS_RENDER_PROFILE_ON
         renderSpriteDrawUs += WsRenderElapsedUs(renderSectionStart);
 #endif
     }
@@ -763,13 +769,11 @@ WS_PPU_CODE void RefreshLine(int Line)
                       sprClipRight, sprWindowSkips, sprPrioritySkips,
                       sprTransparentSkips, sprLimited);
 #endif
-#if WS_RENDER_MICROBENCH_ON
+#if WS_RENDER_PROFILE_ON
     WsBenchRenderLine(renderClearUs, renderBgUs, renderFgUs,
                       renderSpriteWindowUs, renderSpriteScanUs,
-                      renderSpriteDrawUs, bgDecodeCalls, bgDecodeSamples,
-                      bgDecodeUs, fgDecodeCalls, fgDecodeSamples,
-                      fgDecodeUs, spriteDecodeCalls, spriteDecodeSamples,
-                      spriteDecodeUs);
+                      renderSpriteDrawUs, bgDecodeCalls, fgDecodeCalls,
+                      spriteDecodeCalls);
 #endif
 }
 
