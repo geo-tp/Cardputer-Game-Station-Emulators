@@ -152,6 +152,101 @@ static inline void DecodeTileRow(BYTE* index, const BYTE* data, int packedMode, 
     StorePackedPixels(index, pixels, hrev);
 }
 
+static inline int IsZeroTileRow(const BYTE* data, int color16)
+{
+    if(data[0] | data[1])
+    {
+        return 0;
+    }
+    if(color16 && (data[2] | data[3]))
+    {
+        return 0;
+    }
+    return 1;
+}
+
+static inline void RenderBgTile(WORD** dst, const WORD* pal, const BYTE* index,
+                                int zeroTransparent)
+{
+    WORD* p = *dst;
+    if(zeroTransparent)
+    {
+        if(index[0]) p[0] = pal[index[0]];
+        if(index[1]) p[1] = pal[index[1]];
+        if(index[2]) p[2] = pal[index[2]];
+        if(index[3]) p[3] = pal[index[3]];
+        if(index[4]) p[4] = pal[index[4]];
+        if(index[5]) p[5] = pal[index[5]];
+        if(index[6]) p[6] = pal[index[6]];
+        if(index[7]) p[7] = pal[index[7]];
+    }
+    else
+    {
+        p[0] = pal[index[0]];
+        p[1] = pal[index[1]];
+        p[2] = pal[index[2]];
+        p[3] = pal[index[3]];
+        p[4] = pal[index[4]];
+        p[5] = pal[index[5]];
+        p[6] = pal[index[6]];
+        p[7] = pal[index[7]];
+    }
+    *dst = p + 8;
+}
+
+static inline void RenderFgTileNoWindow(WORD** dst, BYTE** zbuf,
+                                        const WORD* pal, const BYTE* index,
+                                        int zeroTransparent)
+{
+    WORD* p = *dst;
+    BYTE* z = *zbuf;
+    if(zeroTransparent)
+    {
+        if(index[0]) { p[0] = pal[index[0]]; z[0] = 1; }
+        if(index[1]) { p[1] = pal[index[1]]; z[1] = 1; }
+        if(index[2]) { p[2] = pal[index[2]]; z[2] = 1; }
+        if(index[3]) { p[3] = pal[index[3]]; z[3] = 1; }
+        if(index[4]) { p[4] = pal[index[4]]; z[4] = 1; }
+        if(index[5]) { p[5] = pal[index[5]]; z[5] = 1; }
+        if(index[6]) { p[6] = pal[index[6]]; z[6] = 1; }
+        if(index[7]) { p[7] = pal[index[7]]; z[7] = 1; }
+    }
+    else
+    {
+        p[0] = pal[index[0]]; z[0] = 1;
+        p[1] = pal[index[1]]; z[1] = 1;
+        p[2] = pal[index[2]]; z[2] = 1;
+        p[3] = pal[index[3]]; z[3] = 1;
+        p[4] = pal[index[4]]; z[4] = 1;
+        p[5] = pal[index[5]]; z[5] = 1;
+        p[6] = pal[index[6]]; z[6] = 1;
+        p[7] = pal[index[7]]; z[7] = 1;
+    }
+    *dst = p + 8;
+    *zbuf = z + 8;
+}
+
+static inline void RenderFgTileWindow(WORD** dst, BYTE** wbuf, BYTE** zbuf,
+                                      const WORD* pal, const BYTE* index,
+                                      int zeroTransparent)
+{
+    WORD* p = *dst;
+    BYTE* w = *wbuf;
+    BYTE* z = *zbuf;
+    for(int px = 0; px < 8; ++px)
+    {
+        if(((!index[px]) && zeroTransparent) || w[px])
+        {
+            continue;
+        }
+        p[px] = pal[index[px]];
+        z[px] = 1;
+    }
+    *dst = p + 8;
+    *wbuf = w + 8;
+    *zbuf = z + 8;
+}
+
 void AllocateBuffers(void) {
     InitTileDecodeLut();
     Palette = (WORD (*)[16])calloc(16, sizeof(*Palette));
@@ -376,51 +471,17 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
 
+            const int zeroTransparent = color16 || (TMap & 0x0800);
+            PalIndex = (TMap & MAP_PAL) >> 9;
+            if(zeroTransparent && IsZeroTileRow(pbTData, color16))
+            {
+                pSWrBuf += 8;
+                continue;
+            }
+
             WS_RENDER_DECODE_ROW(bgDecodeCalls, index, pbTData, packedMode,
                                  color16, TMap & MAP_HREV);
-            const int zeroTransparent = color16 || (TMap & 0x0800);
-
-            PalIndex = (TMap & MAP_PAL) >> 9;
-            if((!index[0]) && zeroTransparent) pSWrBuf++;
-            else
-            {
-                *pSWrBuf++ = Palette[PalIndex][index[0]];
-            }
-            if((!index[1]) && zeroTransparent) pSWrBuf++;
-            else
-            {
-                *pSWrBuf++ = Palette[PalIndex][index[1]];
-            }
-            if((!index[2]) && zeroTransparent) pSWrBuf++;
-            else
-            {
-                *pSWrBuf++ = Palette[PalIndex][index[2]];
-            }
-            if((!index[3]) && zeroTransparent) pSWrBuf++;
-            else
-            {
-                *pSWrBuf++ = Palette[PalIndex][index[3]];
-            }
-            if((!index[4]) && zeroTransparent) pSWrBuf++;
-            else
-            {
-                *pSWrBuf++ = Palette[PalIndex][index[4]];
-            }
-            if((!index[5]) && zeroTransparent) pSWrBuf++;
-            else
-            {
-                *pSWrBuf++ = Palette[PalIndex][index[5]];
-            }
-            if((!index[6]) && zeroTransparent) pSWrBuf++;
-            else
-            {
-                *pSWrBuf++ = Palette[PalIndex][index[6]];
-            }
-            if((!index[7]) && zeroTransparent) pSWrBuf++;
-            else
-            {
-                *pSWrBuf++ = Palette[PalIndex][index[7]];
-            }
+            RenderBgTile(&pSWrBuf, Palette[PalIndex], index, zeroTransparent);
         }
     }
 #if WS_RENDER_PROFILE_ON
@@ -433,7 +494,9 @@ WS_PPU_CODE void RefreshLine(int Line)
     memset(ZBuf, 0, sizeof(ZBuf));
     if((DSPCTL & 0x02) && Layer[1])          //FG layer�\��
     {
-        if((DSPCTL & 0x30) == 0x20) // �E�B���h�E�����݂̂ɕ\��
+        const int fgWindowMode = DSPCTL & 0x30;
+        const int fgWindowEnabled = (fgWindowMode == 0x20) || (fgWindowMode == 0x30);
+        if(fgWindowMode == 0x20) // �E�B���h�E�����݂̂ɕ\��
         {
             memset(WBuf + 8, 1, LCD_MAIN_W);
             if((Line >= SCR2WT) && (Line <= SCR2WB))
@@ -446,7 +509,7 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
         }
-        else if((DSPCTL & 0x30) == 0x30) // �E�B���h�E�O���݂̂ɕ\��
+        else if(fgWindowMode == 0x30) // �E�B���h�E�O���݂̂ɕ\��
         {
             memset(WBuf + 8, 0, LCD_MAIN_W);
             if((Line >= SCR2WT) && (Line <= SCR2WB))
@@ -459,11 +522,6 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
         }
-        else
-        {
-            memset(WBuf + 8, 0, LCD_MAIN_W);
-        }
-
         OffsetX = SCR2X & 0x07;
         pSWrBuf = pSBuf - OffsetX;
         i = Line + SCR2Y;
@@ -522,67 +580,31 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
 
+            const int zeroTransparent = color16 || (TMap & 0x0800);
+            PalIndex = (TMap & MAP_PAL) >> 9;
+            if(zeroTransparent && IsZeroTileRow(pbTData, color16))
+            {
+                pSWrBuf += 8;
+                pZ += 8;
+                if(fgWindowEnabled)
+                {
+                    pW += 8;
+                }
+                continue;
+            }
+
             WS_RENDER_DECODE_ROW(fgDecodeCalls, index, pbTData, packedMode,
                                  color16, TMap & MAP_HREV);
-            const int zeroTransparent = color16 || (TMap & 0x0800);
-
-            PalIndex = (TMap & MAP_PAL) >> 9;
-            if(((!index[0]) && zeroTransparent) || (*pW)) pSWrBuf++;
+            if(fgWindowEnabled)
+            {
+                RenderFgTileWindow(&pSWrBuf, &pW, &pZ, Palette[PalIndex], index,
+                                   zeroTransparent);
+            }
             else
             {
-                *pSWrBuf++ = Palette[PalIndex][index[0]];
-                *pZ = 1;
+                RenderFgTileNoWindow(&pSWrBuf, &pZ, Palette[PalIndex], index,
+                                     zeroTransparent);
             }
-            pW++;pZ++;
-            if(((!index[1]) && zeroTransparent) || (*pW)) pSWrBuf++;
-            else
-            {
-                *pSWrBuf++ = Palette[PalIndex][index[1]];
-                *pZ = 1;
-            }
-            pW++;pZ++;
-            if(((!index[2]) && zeroTransparent) || (*pW)) pSWrBuf++;
-            else
-            {
-                *pSWrBuf++ = Palette[PalIndex][index[2]];
-                *pZ = 1;
-            }
-            pW++;pZ++;
-            if(((!index[3]) && zeroTransparent) || (*pW)) pSWrBuf++;
-            else
-            {
-                *pSWrBuf++ = Palette[PalIndex][index[3]];
-                *pZ = 1;
-            }
-            pW++;pZ++;
-            if(((!index[4]) && zeroTransparent) || (*pW)) pSWrBuf++;
-            else
-            {
-                *pSWrBuf++ = Palette[PalIndex][index[4]];
-                *pZ = 1;
-            }
-            pW++;pZ++;
-            if(((!index[5]) && zeroTransparent) || (*pW)) pSWrBuf++;
-            else
-            {
-                *pSWrBuf++ = Palette[PalIndex][index[5]];
-                *pZ = 1;
-            }
-            pW++;pZ++;
-            if(((!index[6]) && zeroTransparent) || (*pW)) pSWrBuf++;
-            else
-            {
-                *pSWrBuf++ = Palette[PalIndex][index[6]];
-                *pZ = 1;
-            }
-            pW++;pZ++;
-            if(((!index[7]) && zeroTransparent) || (*pW)) pSWrBuf++;
-            else
-            {
-                *pSWrBuf++ = Palette[PalIndex][index[7]];
-                *pZ = 1;
-            }
-            pW++;pZ++;
         }
     }
 #if WS_RENDER_PROFILE_ON
