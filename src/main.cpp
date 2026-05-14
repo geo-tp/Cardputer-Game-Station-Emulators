@@ -73,7 +73,6 @@ void setup() {
   } else {
     // Welcome
     display.welcome();
-    input.waitPress(4000);
 
     // Try to get last game from NVS or select a new one
     romPath = getLastGameFromNvs(display, input, sd);

@@ -7,6 +7,53 @@
 
 M5GFX* CardputerView::Display = nullptr;
 
+namespace {
+constexpr uint32_t kSplashDurationMs = 3000;
+constexpr uint32_t kSplashFrameMs = 90;
+constexpr uint32_t kSplashColorStepMs = 120;
+constexpr int kSplashToneChannel = 7;
+
+constexpr uint16_t kSplashPalette[] = {
+    0xB81F, // purple
+    0xF9A0, // orange
+    0xFBAE, // peach
+    0xFFE0, // yellow
+    0x7E60, // green
+    0x07FF, // cyan
+    0x435F, // blue
+    0xD95F  // magenta
+};
+
+struct SplashNote {
+    float freq;
+    uint16_t durationMs;
+};
+
+constexpr SplashNote kSplashTune[] = {
+    {261.63f, 170}, {329.63f, 170}, {392.00f, 220}, {329.63f, 150},
+    {293.66f, 170}, {349.23f, 170}, {392.00f, 220}, {349.23f, 150},
+    {261.63f, 170}, {329.63f, 170}, {392.00f, 170}, {440.00f, 220},
+    {392.00f, 170}, {329.63f, 170}, {293.66f, 220}, {261.63f, 260}
+};
+
+void drawSplashTitle(M5GFX* display, const std::string& title, int x, int y, uint32_t elapsedMs) {
+    const uint8_t paletteCount = sizeof(kSplashPalette) / sizeof(kSplashPalette[0]);
+    const uint8_t phase = (elapsedMs / kSplashColorStepMs) % paletteCount;
+    int cursorX = x;
+
+    display->fillRect(0, y - 2, display->width(), display->fontHeight() + 6, BACKGROUND_COLOR);
+
+    for (size_t i = 0; i < title.length(); ++i) {
+        char c[2] = { title[i], '\0' };
+        const uint8_t colorIndex = (i + paletteCount - phase) % paletteCount;
+        display->setTextColor(kSplashPalette[colorIndex]);
+        display->setCursor(cursorX, y);
+        display->printf("%s", c);
+        cursorX += display->textWidth(c);
+    }
+}
+}
+
 void CardputerView::initialize() {
     Display = &M5Cardputer.Display;
 
@@ -181,12 +228,42 @@ void CardputerView::welcome() {
         // Display->pushImage(0, 0, BGGAMESTATION_S_WIDTH, BGGAMESTATION_S_HEIGHT, bggamestation_s);
     #endif
    
-    // Title
-    std::string title = "Game Station 1.2";
-    Display->setTextColor(TEXT_COLOR);
+    const std::string title = "Game Station 1.2";
     Display->setTextSize(TEXT_BIG);
-    Display->setCursor(getCenterOffset(title), 65);
-    Display->printf("%s", title.c_str());
+    const int titleX = getCenterOffset(title);
+    const int titleY = 65;
+
+    if (!M5Cardputer.Speaker.isRunning()) {
+        M5Cardputer.Speaker.begin();
+    }
+    M5Cardputer.Speaker.setVolume(70);
+
+    uint32_t noteStart = 0;
+    size_t noteIndex = 0;
+    uint32_t start = millis();
+    M5Cardputer.Speaker.tone(kSplashTune[0].freq, kSplashTune[0].durationMs, kSplashToneChannel, true);
+
+    while ((millis() - start) < kSplashDurationMs) {
+        const uint32_t elapsed = millis() - start;
+        drawSplashTitle(Display, title, titleX, titleY, elapsed);
+
+        if (noteIndex < (sizeof(kSplashTune) / sizeof(kSplashTune[0])) &&
+            elapsed - noteStart >= kSplashTune[noteIndex].durationMs) {
+            ++noteIndex;
+            noteStart = elapsed;
+            if (noteIndex < (sizeof(kSplashTune) / sizeof(kSplashTune[0]))) {
+                M5Cardputer.Speaker.tone(kSplashTune[noteIndex].freq,
+                                         kSplashTune[noteIndex].durationMs,
+                                         kSplashToneChannel,
+                                         true);
+            }
+        }
+
+        delay(kSplashFrameMs);
+    }
+
+    drawSplashTitle(Display, title, titleX, titleY, kSplashDurationMs);
+    M5Cardputer.Speaker.stop(kSplashToneChannel);
 
     Display->setSwapBytes(false);
 }

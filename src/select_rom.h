@@ -129,7 +129,7 @@ static inline std::string getRomPath(SdService& sdService, CardputerView& displa
     if (!skipWelcome) {
         display.topBar("LOAD ROM CARTRIDGE", false, false);
         display.showValidExt(supportedExts);
-        input.waitPress(4000);
+        input.waitPress(3000);
     } else {
         display.topBar("LOAD ROM CARTRIDGE", false, false);
         display.subMessage("Loading...", 0);
