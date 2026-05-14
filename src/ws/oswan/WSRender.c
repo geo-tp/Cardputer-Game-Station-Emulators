@@ -708,10 +708,11 @@ WS_PPU_CODE void RefreshLine(int Line)
 /*********************************************************************/
     if((DSPCTL & 0x04) && Layer[2])          //sprite
     {
+        const int spriteWindowEnabled = DSPCTL & 0x08;
 #if WS_RENDER_PROFILE_ON
         renderSectionStart = SDL_UXTimerRead();
 #endif
-        if (DSPCTL & 0x08)      //sprite window
+        if (spriteWindowEnabled)      //sprite window
         {
             memset(WBuf + 8, 1, LCD_MAIN_W);
             if ((Line >= SPRWT) && (Line <= SPRWB))
@@ -835,56 +836,108 @@ WS_PPU_CODE void RefreshLine(int Line)
                                                        TMap & SPR_HREV,
                                                        WS_RENDER_DECODE_COUNTER(spriteDecodeCalls));
 
-            pW = WBuf + 8 + sprX + firstPixel;
             pZ = ZBuf + 8 + sprX + firstPixel;
             PalIndex = ((TMap & SPR_PAL) >> 9) + 8;
-            for(i = firstPixel; i <= (unsigned int)lastPixel; i++, pZ++, pW++)
+            const WORD* spritePal = Palette[PalIndex];
+            const int lowPrioritySprite = !(TMap & SPR_LAYR);
+            if(!spriteWindowEnabled)
             {
-                if(DSPCTL & 0x08)
+                for(i = firstPixel; i <= (unsigned int)lastPixel; i++, pZ++)
                 {
-                    if(TMap & SPR_CLIP)
+                    const BYTE pixel = rowIndex[i];
+                    if((!pixel) && zeroTransparent)
                     {
-                        if(!*pW)
-                        {
-                            pSWrBuf++;
+                        pSWrBuf++;
 #ifdef BENCHMARK_LOGS
-                            sprWindowSkips++;
+                        sprTransparentSkips++;
 #endif
-                            continue;
-                        }
+                        continue;
                     }
-                    else
+                    if((*pZ) && lowPrioritySprite)
                     {
-                        if(*pW)
-                        {
-                            pSWrBuf++;
+                        pSWrBuf++;
 #ifdef BENCHMARK_LOGS
-                            sprWindowSkips++;
+                        sprPrioritySkips++;
 #endif
-                            continue;
-                        }
+                        continue;
                     }
+                    *pSWrBuf++ = spritePal[pixel];
+#ifdef BENCHMARK_LOGS
+                    sprPixels++;
+#endif
                 }
-                if((!rowIndex[i]) && zeroTransparent)
+            }
+            else if(TMap & SPR_CLIP)
+            {
+                pW = WBuf + 8 + sprX + firstPixel;
+                for(i = firstPixel; i <= (unsigned int)lastPixel; i++, pZ++, pW++)
                 {
-                    pSWrBuf++;
+                    if(!*pW)
+                    {
+                        pSWrBuf++;
 #ifdef BENCHMARK_LOGS
-                    sprTransparentSkips++;
+                        sprWindowSkips++;
 #endif
-                    continue;
+                        continue;
+                    }
+                    const BYTE pixel = rowIndex[i];
+                    if((!pixel) && zeroTransparent)
+                    {
+                        pSWrBuf++;
+#ifdef BENCHMARK_LOGS
+                        sprTransparentSkips++;
+#endif
+                        continue;
+                    }
+                    if((*pZ) && lowPrioritySprite)
+                    {
+                        pSWrBuf++;
+#ifdef BENCHMARK_LOGS
+                        sprPrioritySkips++;
+#endif
+                        continue;
+                    }
+                    *pSWrBuf++ = spritePal[pixel];
+#ifdef BENCHMARK_LOGS
+                    sprPixels++;
+#endif
                 }
-                if((*pZ) && (!(TMap & SPR_LAYR)))
+            }
+            else
+            {
+                pW = WBuf + 8 + sprX + firstPixel;
+                for(i = firstPixel; i <= (unsigned int)lastPixel; i++, pZ++, pW++)
                 {
-                    pSWrBuf++;
+                    if(*pW)
+                    {
+                        pSWrBuf++;
 #ifdef BENCHMARK_LOGS
-                    sprPrioritySkips++;
+                        sprWindowSkips++;
 #endif
-                    continue;
+                        continue;
+                    }
+                    const BYTE pixel = rowIndex[i];
+                    if((!pixel) && zeroTransparent)
+                    {
+                        pSWrBuf++;
+#ifdef BENCHMARK_LOGS
+                        sprTransparentSkips++;
+#endif
+                        continue;
+                    }
+                    if((*pZ) && lowPrioritySprite)
+                    {
+                        pSWrBuf++;
+#ifdef BENCHMARK_LOGS
+                        sprPrioritySkips++;
+#endif
+                        continue;
+                    }
+                    *pSWrBuf++ = spritePal[pixel];
+#ifdef BENCHMARK_LOGS
+                    sprPixels++;
+#endif
                 }
-                *pSWrBuf++ = Palette[PalIndex][rowIndex[i]];
-#ifdef BENCHMARK_LOGS
-                sprPixels++;
-#endif
             }
         }
 #if WS_RENDER_PROFILE_ON
