@@ -230,6 +230,12 @@ static UINT32 nec_pollwait_cmpb_imm_jnz_exits;
 static UINT32 nec_pollwait_cmpb_imm_jnz_slices;
 static UINT32 nec_pollwait_cmpb_imm_jz_exits;
 static UINT32 nec_pollwait_cmpb_imm_jz_slices;
+static UINT32 nec_pollwait_es_mov_and_jnz_exits;
+static UINT32 nec_pollwait_es_mov_and_jnz_slices;
+static UINT32 nec_pollwait_es_cmpb_jnz_exits;
+static UINT32 nec_pollwait_es_cmpb_jnz_slices;
+static UINT32 nec_pollwait_movbx_es_cmpb_jnz_exits;
+static UINT32 nec_pollwait_movbx_es_cmpb_jnz_slices;
 #endif
 
 #if defined(WS_CPU_PROFILE) || defined(WS_CPU_BRANCH_PROFILE) || defined(WS_CPU_SAFE_POLL_WAIT_FASTPATH)
@@ -254,9 +260,15 @@ void nec_profile_log_and_reset(void)
        nec_pollwait_cmpb_imm_jnz_exits ||
        nec_pollwait_cmpb_imm_jnz_slices ||
        nec_pollwait_cmpb_imm_jz_exits ||
-       nec_pollwait_cmpb_imm_jz_slices)
+       nec_pollwait_cmpb_imm_jz_slices ||
+       nec_pollwait_es_mov_and_jnz_exits ||
+       nec_pollwait_es_mov_and_jnz_slices ||
+       nec_pollwait_es_cmpb_jnz_exits ||
+       nec_pollwait_es_cmpb_jnz_slices ||
+       nec_pollwait_movbx_es_cmpb_jnz_exits ||
+       nec_pollwait_movbx_es_cmpb_jnz_slices)
     {
-        printf("[WS][CPU][POLLWAIT] mov_cmp_jb exits=%u slices=%u moval_cmp_imm_jnz exits=%u slices=%u cmp_imm_jnz exits=%u slices=%u cmpb_imm_jnz exits=%u slices=%u cmpb_imm_jz exits=%u slices=%u\n",
+        printf("[WS][CPU][POLLWAIT] mov_cmp_jb exits=%u slices=%u moval_cmp_imm_jnz exits=%u slices=%u cmp_imm_jnz exits=%u slices=%u cmpb_imm_jnz exits=%u slices=%u cmpb_imm_jz exits=%u slices=%u es_mov_and_jnz exits=%u slices=%u es_cmpb_jnz exits=%u slices=%u movbx_es_cmpb_jnz exits=%u slices=%u\n",
                nec_pollwait_mov_cmp_jb_exits,
                nec_pollwait_mov_cmp_jb_slices,
                nec_pollwait_moval_cmp_imm_jnz_exits,
@@ -266,7 +278,13 @@ void nec_profile_log_and_reset(void)
                nec_pollwait_cmpb_imm_jnz_exits,
                nec_pollwait_cmpb_imm_jnz_slices,
                nec_pollwait_cmpb_imm_jz_exits,
-               nec_pollwait_cmpb_imm_jz_slices);
+               nec_pollwait_cmpb_imm_jz_slices,
+               nec_pollwait_es_mov_and_jnz_exits,
+               nec_pollwait_es_mov_and_jnz_slices,
+               nec_pollwait_es_cmpb_jnz_exits,
+               nec_pollwait_es_cmpb_jnz_slices,
+               nec_pollwait_movbx_es_cmpb_jnz_exits,
+               nec_pollwait_movbx_es_cmpb_jnz_slices);
         nec_pollwait_mov_cmp_jb_exits = 0;
         nec_pollwait_mov_cmp_jb_slices = 0;
         nec_pollwait_moval_cmp_imm_jnz_exits = 0;
@@ -277,6 +295,12 @@ void nec_profile_log_and_reset(void)
         nec_pollwait_cmpb_imm_jnz_slices = 0;
         nec_pollwait_cmpb_imm_jz_exits = 0;
         nec_pollwait_cmpb_imm_jz_slices = 0;
+        nec_pollwait_es_mov_and_jnz_exits = 0;
+        nec_pollwait_es_mov_and_jnz_slices = 0;
+        nec_pollwait_es_cmpb_jnz_exits = 0;
+        nec_pollwait_es_cmpb_jnz_slices = 0;
+        nec_pollwait_movbx_es_cmpb_jnz_exits = 0;
+        nec_pollwait_movbx_es_cmpb_jnz_slices = 0;
     }
 #endif
 }
@@ -297,6 +321,20 @@ static UINT8 *parity_table;
 
 #ifdef WS_CPU_SAFE_POLL_WAIT_FASTPATH
 /* These helpers only match byte-exact self-branches with no writes in the loop body. */
+static NEC_CORE_CODE int nec_modrm_disp_len(UINT8 modrm)
+{
+    const UINT8 mod = modrm & 0xc0;
+    const UINT8 rm = modrm & 0x07;
+
+    if(mod == 0xc0)
+        return -1;
+    if(mod == 0x00)
+        return (rm == 0x06) ? 2 : 0;
+    if(mod == 0x40)
+        return 1;
+    return 2;
+}
+
 static NEC_CORE_CODE int nec_fast_pollwait_mov_ax_disp_cmp_cx_jb(void)
 {
     const UINT16 op_start = (UINT16)(I.ip - 1);
@@ -470,6 +508,140 @@ static NEC_CORE_CODE int nec_fast_pollwait_cmpb_disp_imm8_jcc(void)
         nec_pollwait_cmpb_imm_jz_exits++;
     nec_ICount -= 4; /* cmp byte [disp],imm8 + not-taken jcc, adjusted for dispatch epilogue */
     return 1;
+}
+
+static NEC_CORE_CODE int nec_fast_pollwait_es_mov_al_rmb_and_al_jnz(void)
+{
+    const UINT16 op_start = (UINT16)(I.ip - 1);
+    const UINT8 modrm = PEEKOP(cs_base + (UINT16)(op_start + 2));
+    const int disp_len = nec_modrm_disp_len(modrm);
+    const UINT16 mov_len = (UINT16)(3 + disp_len);
+    INT8 rel;
+    UINT16 target;
+
+    if(seg_prefix || disp_len < 0 ||
+       PEEKOP(cs_base + op_start) != 0x26 ||
+       PEEKOP(cs_base + (UINT16)(op_start + 1)) != 0x8A ||
+       (modrm & 0x38) != 0x00 ||
+       PEEKOP(cs_base + (UINT16)(op_start + mov_len)) != 0x22 ||
+       PEEKOP(cs_base + (UINT16)(op_start + mov_len + 1)) != 0xC0 ||
+       PEEKOP(cs_base + (UINT16)(op_start + mov_len + 2)) != 0x75)
+    {
+        return 0;
+    }
+
+    rel = (INT8)PEEKOP(cs_base + (UINT16)(op_start + mov_len + 3));
+    target = (UINT16)(op_start + mov_len + 4 + rel);
+    if(target != op_start)
+    {
+        return 0;
+    }
+
+    seg_prefix = TRUE;
+    prefix_base = seg_base[ES];
+    I.ip = (UINT16)(op_start + 3);
+    I.regs.b[AL] = GetRMByte(modrm);
+    seg_prefix = FALSE;
+
+    {
+        UINT32 dst = I.regs.b[AL];
+        UINT32 src = I.regs.b[AL];
+        ANDB;
+        I.regs.b[AL] = dst;
+    }
+
+    if(!ZF)
+    {
+        I.ip = op_start;
+        nec_pollwait_es_mov_and_jnz_slices++;
+        nec_ICount = -1; /* wait for the ES-polled byte to clear instead of host-spinning */
+        return 1;
+    }
+
+    I.ip = (UINT16)(op_start + mov_len + 4);
+    nec_pollwait_es_mov_and_jnz_exits++;
+    nec_ICount -= 4;
+    return 1;
+}
+
+static NEC_CORE_CODE int nec_fast_pollwait_es_cmpb_rm_imm8_jnz_at(UINT16 op_start, UINT16 cmp_start, int has_mov_bx)
+{
+    const UINT8 modrm = PEEKOP(cs_base + (UINT16)(cmp_start + 2));
+    const int disp_len = nec_modrm_disp_len(modrm);
+    const UINT16 imm_pos = (UINT16)(cmp_start + 3 + disp_len);
+    const UINT16 branch_pos = (UINT16)(imm_pos + 1);
+    const UINT8 imm = PEEKOP(cs_base + imm_pos);
+    INT8 rel;
+    UINT16 target;
+
+    if(disp_len < 0 ||
+       PEEKOP(cs_base + cmp_start) != 0x26 ||
+       PEEKOP(cs_base + (UINT16)(cmp_start + 1)) != 0x80 ||
+       (modrm & 0x38) != 0x38 ||
+       PEEKOP(cs_base + branch_pos) != 0x75)
+    {
+        return 0;
+    }
+
+    rel = (INT8)PEEKOP(cs_base + (UINT16)(branch_pos + 1));
+    target = (UINT16)(branch_pos + 2 + rel);
+    if(target != op_start)
+    {
+        return 0;
+    }
+
+    if(has_mov_bx)
+    {
+        I.regs.b[BL] = PEEKOP(cs_base + (UINT16)(op_start + 1));
+        I.regs.b[BH] = PEEKOP(cs_base + (UINT16)(op_start + 2));
+    }
+
+    seg_prefix = TRUE;
+    prefix_base = seg_base[ES];
+    I.ip = (UINT16)(cmp_start + 3);
+    {
+        UINT32 dst = GetRMByte(modrm);
+        UINT32 src = imm;
+        SUBB;
+    }
+    seg_prefix = FALSE;
+
+    if(!ZF)
+    {
+        I.ip = op_start;
+        if(has_mov_bx)
+            nec_pollwait_movbx_es_cmpb_jnz_slices++;
+        else
+            nec_pollwait_es_cmpb_jnz_slices++;
+        nec_ICount = -1; /* wait for the ES-polled byte to change instead of host-spinning */
+        return 1;
+    }
+
+    I.ip = (UINT16)(branch_pos + 2);
+    if(has_mov_bx)
+        nec_pollwait_movbx_es_cmpb_jnz_exits++;
+    else
+        nec_pollwait_es_cmpb_jnz_exits++;
+    nec_ICount -= 4;
+    return 1;
+}
+
+static NEC_CORE_CODE int nec_fast_pollwait_es_cmpb_rm_imm8_jnz(void)
+{
+    const UINT16 op_start = (UINT16)(I.ip - 1);
+
+    if(seg_prefix)
+        return 0;
+    return nec_fast_pollwait_es_cmpb_rm_imm8_jnz_at(op_start, op_start, 0);
+}
+
+static NEC_CORE_CODE int nec_fast_pollwait_mov_bx_es_cmpb_rm_imm8_jnz(void)
+{
+    const UINT16 op_start = (UINT16)(I.ip - 1);
+
+    if(seg_prefix || PEEKOP(cs_base + op_start) != 0xBB)
+        return 0;
+    return nec_fast_pollwait_es_cmpb_rm_imm8_jnz_at(op_start, (UINT16)(op_start + 3), 1);
 }
 #endif
 
@@ -1856,6 +2028,10 @@ NEC_CORE_CODE int nec_execute(int cycles)
             }
             case 0x26:
             {
+#ifdef WS_CPU_SAFE_POLL_WAIT_FASTPATH
+                if(nec_fast_pollwait_es_mov_al_rmb_and_al_jnz()) goto nec_dispatch_done;
+                if(nec_fast_pollwait_es_cmpb_rm_imm8_jnz()) goto nec_dispatch_done;
+#endif
                 const UINT32 next = FETCHOP;
                 seg_prefix = TRUE;
                 prefix_base = seg_base[ES];
@@ -1902,6 +2078,11 @@ NEC_CORE_CODE int nec_execute(int cycles)
                 if(nec_fast_pollwait_mov_ax_disp_cmp_cx_jb()) goto nec_dispatch_done;
 #endif
                 NEC_OP_MOV_AXDISP(); goto nec_dispatch_done;
+            case 0xbb:
+#ifdef WS_CPU_SAFE_POLL_WAIT_FASTPATH
+                if(nec_fast_pollwait_mov_bx_es_cmpb_rm_imm8_jnz()) goto nec_dispatch_done;
+#endif
+                nec_instruction[op](); break;
             case 0xe2: NEC_OP_LOOP(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0xfe: NEC_OP_FEPRE(goto nec_dispatch_done); goto nec_dispatch_done;
             default:
