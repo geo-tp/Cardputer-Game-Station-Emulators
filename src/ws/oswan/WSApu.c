@@ -24,6 +24,7 @@
 #define WS_OUTPUT_FREQ   24000
 #define WAV_FREQ         WS_APU_TICK_RATE
 #define WAV_VOLUME       40
+#define WS_APU_WAVE_STEP (3072000 / WAV_FREQ)
 #define WS_RING_BARRIER() __sync_synchronize()
 // -----------------------------------------------------------------------------
 // State APU
@@ -362,36 +363,37 @@ void WS_APU_CODE WsWaveSet(BYTE voice, BYTE hvoice)
 {
   static int point[4]    = {0,0,0,0};
   static int preindex[4] = {0,0,0,0};
-  int16_t lVol[4], rVol[4];
-  int channel, index;
-  int16_t value;
+  const int voiceMixOn = VoiceOn && Sound[4];
+  int32_t mixL = 0;
+  int32_t mixR = 0;
 
-  for (channel = 0; channel < 4; channel++) {
-    if (!Ch[channel].on) { lVol[channel]=rVol[channel]=0; continue; }
+  for (int channel = 0; channel < 4; channel++) {
+    int16_t value;
 
-    if (channel == 1 && VoiceOn && Sound[4])      { lVol[channel]=rVol[channel]=0; continue; }
-    if (channel == 2 && Swp.on && !Sound[5])      { lVol[channel]=rVol[channel]=0; continue; }
+    if (!Ch[channel].on) continue;
+    if (channel == 1 && voiceMixOn) continue;
+    if (channel == 2 && Swp.on && !Sound[5]) continue;
 
     if (channel == 3 && Noise.on && s_noiseEnabled && Sound[6]) {
       value = apuNoiseBit() ? 7 : -8;
     } else if (Sound[channel] == 0) {
-      lVol[channel]=rVol[channel]=0; continue;
+      continue;
     } else {
-      index = (3072000 / WAV_FREQ) * point[channel] / (2048 - Ch[channel].freq);
+      int index = WS_APU_WAVE_STEP * point[channel] / (2048 - Ch[channel].freq);
       if ((index %= 32) == 0 && preindex[channel]) point[channel] = 0;
       value = (int16_t)PData[channel][index] - 8;   // <- **PSG actif**
       preindex[channel] = index;
       point[channel]++;
     }
 
-    lVol[channel] = (int16_t)(value * Ch[channel].volL);
-    rVol[channel] = (int16_t)(value * Ch[channel].volR);
+    mixL += value * Ch[channel].volL;
+    mixR += value * Ch[channel].volR;
   }
 
   int16_t vVol = ((int16_t)voice  - 0x80) * 2;  // DMA voice
   int16_t hVol = ((int16_t)hvoice - 0x80) * 2;  // Hyper voice
-  int32_t mixL = (int32_t)(lVol[0]+lVol[1]+lVol[2]+lVol[3] + vVol + hVol) * WAV_VOLUME;
-  int32_t mixR = (int32_t)(rVol[0]+rVol[1]+rVol[2]+rVol[3] + vVol + hVol) * WAV_VOLUME;
+  mixL = (mixL + vVol + hVol) * WAV_VOLUME;
+  mixR = (mixR + vVol + hVol) * WAV_VOLUME;
 
 
   int16_t LL = clamp16(mixL);
