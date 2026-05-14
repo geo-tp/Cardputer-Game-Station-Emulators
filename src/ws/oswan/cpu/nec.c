@@ -33,8 +33,10 @@
 #ifdef WS_CORE_IRAM
 #include <esp_attr.h>
 #define NEC_CORE_CODE IRAM_ATTR
+#define NEC_COLD_CODE
 #else
 #define NEC_CORE_CODE
+#define NEC_COLD_CODE
 #endif
 
 #define UINT8 unsigned char
@@ -567,7 +569,8 @@ static void nec_interrupt(unsigned int_num, BOOLEAN md_flag)
 /*                             OPCODES                                      */
 /****************************************************************************/
 
-#define OP(num,func_name) static NEC_CORE_CODE void func_name(void)
+#define OP(num,func_name) static NEC_COLD_CODE void func_name(void)
+#define OP_IRAM(num,func_name) static NEC_CORE_CODE void func_name(void)
 
 #define NEC_OP_ADD_R16W(done_stmt) do { \
     GetModRM; \
@@ -832,7 +835,7 @@ static void nec_interrupt(unsigned int_num, BOOLEAN md_flag)
 OP( 0x00, i_add_br8  ) { DEF_br8;   ADDB;   PutbackRMByte(ModRM,dst);   CLKM(3,1);      }
 OP( 0x01, i_add_wr16 ) { DEF_wr16;  ADDW;   PutbackRMWord(ModRM,dst);   CLKM(3,1);  }
 OP( 0x02, i_add_r8b  ) { DEF_r8b;   ADDB;   RegByte(ModRM)=dst;         CLKM(2,1);      }
-OP( 0x03, i_add_r16w ) { NEC_OP_ADD_R16W(return); }
+OP_IRAM( 0x03, i_add_r16w ) { NEC_OP_ADD_R16W(return); }
 OP( 0x04, i_add_ald8 ) { DEF_ald8;  ADDB;   I.regs.b[AL]=dst;           CLK(1);             }
 OP( 0x05, i_add_axd16) { DEF_axd16; ADDW;   I.regs.w[AW]=dst;           CLK(1);             }
 OP( 0x06, i_push_es  ) { PUSH(I.sregs[ES]); CLK(2);     }
@@ -896,21 +899,21 @@ OP( 0x1b, i_sbb_r16w ) { DEF_r16w;  src+=CF;    SUBW;   RegWord(ModRM)=dst;     
 OP( 0x1c, i_sbb_ald8 ) { DEF_ald8;  src+=CF;    SUBB;   I.regs.b[AL]=dst;           CLK(1);                 }
 OP( 0x1d, i_sbb_axd16) { DEF_axd16; src+=CF;    SUBW;   I.regs.w[AW]=dst;           CLK(1); }
 OP( 0x1e, i_push_ds  ) { PUSH(I.sregs[DS]);     CLK(2); }
-OP( 0x1f, i_pop_ds   ) { UINT32 tmp; POP(tmp); SET_SEG(DS,tmp);      CLK(3); }
+OP_IRAM( 0x1f, i_pop_ds   ) { UINT32 tmp; POP(tmp); SET_SEG(DS,tmp);      CLK(3); }
 
 OP( 0x20, i_and_br8  ) { DEF_br8;   ANDB;   PutbackRMByte(ModRM,dst);   CLKM(3,1);      }
 OP( 0x21, i_and_wr16 ) { DEF_wr16;  ANDW;   PutbackRMWord(ModRM,dst);   CLKM(3,1);  }
-OP( 0x22, i_and_r8b  ) { DEF_r8b;   ANDB;   RegByte(ModRM)=dst;         CLKM(2,1);      }
+OP_IRAM( 0x22, i_and_r8b  ) { DEF_r8b;   ANDB;   RegByte(ModRM)=dst;         CLKM(2,1);      }
 OP( 0x23, i_and_r16w ) { DEF_r16w;  ANDW;   RegWord(ModRM)=dst;         CLKM(2,1);  }
 OP( 0x24, i_and_ald8 ) { DEF_ald8;  ANDB;   I.regs.b[AL]=dst;           CLK(1);             }
-OP( 0x25, i_and_axd16) { DEF_axd16; ANDW;   I.regs.w[AW]=dst;           CLK(1); }
-OP( 0x26, i_es       ) { seg_prefix=TRUE;   prefix_base=seg_base[ES]; CLK(1);     nec_instruction[FETCHOP](); seg_prefix=FALSE; }
+OP_IRAM( 0x25, i_and_axd16) { DEF_axd16; ANDW;   I.regs.w[AW]=dst;           CLK(1); }
+OP_IRAM( 0x26, i_es       ) { seg_prefix=TRUE;   prefix_base=seg_base[ES]; CLK(1);     nec_instruction[FETCHOP](); seg_prefix=FALSE; }
 OP( 0x27, i_daa      ) { ADJ4(6,0x60);                                  CLK(10);    }
 
 OP( 0x28, i_sub_br8  ) { DEF_br8;   SUBB;   PutbackRMByte(ModRM,dst);   CLKM(3,1);      }
 OP( 0x29, i_sub_wr16 ) { DEF_wr16;  SUBW;   PutbackRMWord(ModRM,dst);   CLKM(3,1);  }
-OP( 0x2a, i_sub_r8b  ) { DEF_r8b;   SUBB;   RegByte(ModRM)=dst;         CLKM(2,1);      }
-OP( 0x2b, i_sub_r16w ) { DEF_r16w;  SUBW;   RegWord(ModRM)=dst;         CLKM(2,1);  }
+OP_IRAM( 0x2a, i_sub_r8b  ) { DEF_r8b;   SUBB;   RegByte(ModRM)=dst;         CLKM(2,1);      }
+OP_IRAM( 0x2b, i_sub_r16w ) { DEF_r16w;  SUBW;   RegWord(ModRM)=dst;         CLKM(2,1);  }
 OP( 0x2c, i_sub_ald8 ) { DEF_ald8;  SUBB;   I.regs.b[AL]=dst;           CLK(1);                 }
 OP( 0x2d, i_sub_axd16) { DEF_axd16; SUBW;   I.regs.w[AW]=dst;           CLK(1); }
 OP( 0x2e, i_cs       ) { seg_prefix=TRUE;   prefix_base=seg_base[CS]; CLK(1);     nec_instruction[FETCHOP](); seg_prefix=FALSE; }
@@ -918,17 +921,17 @@ OP( 0x2f, i_das      ) { ADJ4(-6,-0x60);                                CLK(10);
 
 OP( 0x30, i_xor_br8  ) { DEF_br8;   XORB;   PutbackRMByte(ModRM,dst);   CLKM(3,1);      }
 OP( 0x31, i_xor_wr16 ) { DEF_wr16;  XORW;   PutbackRMWord(ModRM,dst);   CLKM(3,1);  }
-OP( 0x32, i_xor_r8b  ) { DEF_r8b;   XORB;   RegByte(ModRM)=dst;         CLKM(2,1);      }
+OP_IRAM( 0x32, i_xor_r8b  ) { DEF_r8b;   XORB;   RegByte(ModRM)=dst;         CLKM(2,1);      }
 OP( 0x33, i_xor_r16w ) { DEF_r16w;  XORW;   RegWord(ModRM)=dst;         CLKM(2,1);  }
 OP( 0x34, i_xor_ald8 ) { DEF_ald8;  XORB;   I.regs.b[AL]=dst;           CLK(1);                 }
 OP( 0x35, i_xor_axd16) { DEF_axd16; XORW;   I.regs.w[AW]=dst;           CLK(1); }
-OP( 0x36, i_ss       ) { seg_prefix=TRUE;   prefix_base=seg_base[SS]; CLK(1);     nec_instruction[FETCHOP](); seg_prefix=FALSE; }
+OP_IRAM( 0x36, i_ss       ) { seg_prefix=TRUE;   prefix_base=seg_base[SS]; CLK(1);     nec_instruction[FETCHOP](); seg_prefix=FALSE; }
 OP( 0x37, i_aaa      ) { ADJB(6,1);                                     CLK(9);     }
 
 OP( 0x38, i_cmp_br8  ) { DEF_br8;   SUBB;                   CLKM(2,1); }
 OP( 0x39, i_cmp_wr16 ) { DEF_wr16;  SUBW;                   CLKM(2,1);  }
 OP( 0x3a, i_cmp_r8b  ) { DEF_r8b;   SUBB;                   CLKM(2,1); }
-OP( 0x3b, i_cmp_r16w ) { GetModRM;
+OP_IRAM( 0x3b, i_cmp_r16w ) { GetModRM;
 	const UINT32 reg = (ModRM >> 3) & 7;
 	UINT32 dst = I.regs.w[reg];
 	UINT32 src;
@@ -943,7 +946,7 @@ OP( 0x3b, i_cmp_r16w ) { GetModRM;
 	SUBW;
 	CLK(2);
 }
-OP( 0x3c, i_cmp_ald8 ) { DEF_ald8;  SUBB;                   CLK(1); }
+OP_IRAM( 0x3c, i_cmp_ald8 ) { DEF_ald8;  SUBB;                   CLK(1); }
 OP( 0x3d, i_cmp_axd16) { DEF_axd16; SUBW;                   CLK(1); }
 OP( 0x3e, i_ds       ) { seg_prefix=TRUE;   prefix_base=seg_base[DS]; CLK(1);     nec_instruction[FETCHOP](); seg_prefix=FALSE; }
 OP( 0x3f, i_aas      ) { ADJB(-6,-1);                       CLK(9); }
@@ -951,10 +954,10 @@ OP( 0x3f, i_aas      ) { ADJB(-6,-1);                       CLK(9); }
 OP( 0x40, i_inc_ax  ) { IncWordReg(AW);                     CLK(1); }
 OP( 0x41, i_inc_cx  ) { IncWordReg(CW);                     CLK(1); }
 OP( 0x42, i_inc_dx  ) { IncWordReg(DW);                     CLK(1); }
-OP( 0x43, i_inc_bx  ) { IncWordReg(BW);                     CLK(1); }
+OP_IRAM( 0x43, i_inc_bx  ) { IncWordReg(BW);                     CLK(1); }
 OP( 0x44, i_inc_sp  ) { IncWordReg(SP);                     CLK(1); }
 OP( 0x45, i_inc_bp  ) { IncWordReg(BP);                     CLK(1); }
-OP( 0x46, i_inc_si  ) { IncWordReg(IX);                     CLK(1); }
+OP_IRAM( 0x46, i_inc_si  ) { IncWordReg(IX);                     CLK(1); }
 OP( 0x47, i_inc_di  ) { IncWordReg(IY);                     CLK(1); }
 
 OP( 0x48, i_dec_ax  ) { DecWordReg(AW);                     CLK(1); }
@@ -966,7 +969,7 @@ OP( 0x4d, i_dec_bp  ) { DecWordReg(BP);                     CLK(1); }
 OP( 0x4e, i_dec_si  ) { DecWordReg(IX);                     CLK(1); }
 OP( 0x4f, i_dec_di  ) { DecWordReg(IY);                     CLK(1); }
 
-OP( 0x50, i_push_ax ) { PUSH(I.regs.w[AW]);                 CLK(1); }
+OP_IRAM( 0x50, i_push_ax ) { PUSH(I.regs.w[AW]);                 CLK(1); }
 OP( 0x51, i_push_cx ) { PUSH(I.regs.w[CW]);                 CLK(1); }
 OP( 0x52, i_push_dx ) { PUSH(I.regs.w[DW]);                 CLK(1); }
 OP( 0x53, i_push_bx ) { PUSH(I.regs.w[BW]);                 CLK(1); }
@@ -975,7 +978,7 @@ OP( 0x55, i_push_bp ) { PUSH(I.regs.w[BP]);                 CLK(1); }
 OP( 0x56, i_push_si ) { PUSH(I.regs.w[IX]);                 CLK(1); }
 OP( 0x57, i_push_di ) { PUSH(I.regs.w[IY]);                 CLK(1); }
 
-OP( 0x58, i_pop_ax  ) { POP(I.regs.w[AW]);                  CLK(1); }
+OP_IRAM( 0x58, i_pop_ax  ) { POP(I.regs.w[AW]);                  CLK(1); }
 OP( 0x59, i_pop_cx  ) { POP(I.regs.w[CW]);                  CLK(1); }
 OP( 0x5a, i_pop_dx  ) { POP(I.regs.w[DW]);                  CLK(1); }
 OP( 0x5b, i_pop_bx  ) { POP(I.regs.w[BW]);                  CLK(1); }
@@ -1022,7 +1025,7 @@ OP( 0x62, i_chkind  ) {
 }
 
 /* OP 0x64 - 0x67 is nop at V30MZ */
-OP( 0x64, i_repnc  ) {  UINT32 next = FETCHOP;  UINT16 c = I.regs.w[CW];
+OP_IRAM( 0x64, i_repnc  ) {  UINT32 next = FETCHOP;  UINT16 c = I.regs.w[CW];
     switch(next) { /* Segments */
         case 0x26:  seg_prefix=TRUE;    prefix_base=seg_base[ES]; next = FETCHOP; CLK(2); break;
         case 0x2e:  seg_prefix=TRUE;    prefix_base=seg_base[CS]; next = FETCHOP; CLK(2); break;
@@ -1051,7 +1054,7 @@ OP( 0x64, i_repnc  ) {  UINT32 next = FETCHOP;  UINT16 c = I.regs.w[CW];
     seg_prefix=FALSE;
 }
 
-OP( 0x65, i_repc  ) {   UINT32 next = FETCHOP;  UINT16 c = I.regs.w[CW];
+OP_IRAM( 0x65, i_repc  ) {   UINT32 next = FETCHOP;  UINT16 c = I.regs.w[CW];
     switch(next) { /* Segments */
         case 0x26:  seg_prefix=TRUE;    prefix_base=seg_base[ES]; next = FETCHOP; CLK(2); break;
         case 0x2e:  seg_prefix=TRUE;    prefix_base=seg_base[CS]; next = FETCHOP; CLK(2); break;
@@ -1091,10 +1094,10 @@ OP( 0x6f, i_outsw    ) { write_port(I.regs.w[DW],GetMemB(DS,I.regs.w[IX])); writ
 
 OP( 0x70, i_jo      ) { JMP( OF);               CLK(1); }
 OP( 0x71, i_jno     ) { JMP(!OF);               CLK(1); }
-OP( 0x72, i_jc      ) { NEC_OP_JC(return); }
-OP( 0x73, i_jnc     ) { JMP(!CF);               CLK(1); }
-OP( 0x74, i_jz      ) { NEC_OP_JZ(return); }
-OP( 0x75, i_jnz     ) { NEC_OP_JNZ(return); }
+OP_IRAM( 0x72, i_jc      ) { NEC_OP_JC(return); }
+OP_IRAM( 0x73, i_jnc     ) { JMP(!CF);               CLK(1); }
+OP_IRAM( 0x74, i_jz      ) { NEC_OP_JZ(return); }
+OP_IRAM( 0x75, i_jnz     ) { NEC_OP_JNZ(return); }
 OP( 0x76, i_jce     ) { JMP(CF || ZF);          CLK(1); }
 OP( 0x77, i_jnce    ) { JMP(!(CF || ZF));       CLK(1); }
 OP( 0x78, i_js      ) { JMP( SF);               CLK(1); }
@@ -1103,10 +1106,10 @@ OP( 0x7a, i_jp      ) { JMP( PF);               CLK(1); }
 OP( 0x7b, i_jnp     ) { JMP(!PF);               CLK(1); }
 OP( 0x7c, i_jl      ) { JMP((SF!=OF)&&(!ZF));   CLK(1); }
 OP( 0x7d, i_jnl     ) { JMP((ZF)||(SF==OF));    CLK(1); }
-OP( 0x7e, i_jle     ) { JMP((ZF)||(SF!=OF));    CLK(1); }
+OP_IRAM( 0x7e, i_jle     ) { JMP((ZF)||(SF!=OF));    CLK(1); }
 OP( 0x7f, i_jnle    ) { JMP((SF==OF)&&(!ZF));   CLK(1); }
 
-OP( 0x80, i_80pre   ) { UINT32 dst, src; GetModRM; dst = GetRMByte(ModRM); src = FETCH;
+OP_IRAM( 0x80, i_80pre   ) { UINT32 dst, src; GetModRM; dst = GetRMByte(ModRM); src = FETCH;
     CLKM(3,1)
     switch (ModRM & 0x38) {
         case 0x00: ADDB;            PutbackRMByte(ModRM,dst);   break;
@@ -1120,7 +1123,7 @@ OP( 0x80, i_80pre   ) { UINT32 dst, src; GetModRM; dst = GetRMByte(ModRM); src =
     }
 }
 
-OP( 0x81, i_81pre   ) { UINT32 dst, src; GetModRM; dst = GetRMWord(ModRM); src = FETCH; src+= (FETCH << 8);
+OP_IRAM( 0x81, i_81pre   ) { UINT32 dst, src; GetModRM; dst = GetRMWord(ModRM); src = FETCH; src+= (FETCH << 8);
     CLKM(3,1)
     switch (ModRM & 0x38) {
         case 0x00: ADDW;            PutbackRMWord(ModRM,dst);   break;
@@ -1148,7 +1151,7 @@ OP( 0x82, i_82pre   ) { UINT32 dst, src; GetModRM; dst = GetRMByte(ModRM); src =
     }
 }
 
-OP( 0x83, i_83pre   ) { NEC_OP_83PRE(return); }
+OP_IRAM( 0x83, i_83pre   ) { NEC_OP_83PRE(return); }
 
 OP( 0x84, i_test_br8  ) { DEF_br8;  ANDB;   CLKM(2,1);      }
 OP( 0x85, i_test_wr16 ) { DEF_wr16; ANDW;   CLKM(2,1);  }
@@ -1156,12 +1159,12 @@ OP( 0x86, i_xchg_br8  ) { DEF_br8;  RegByte(ModRM)=dst; PutbackRMByte(ModRM,src)
 OP( 0x87, i_xchg_wr16 ) { DEF_wr16; RegWord(ModRM)=dst; PutbackRMWord(ModRM,src); CLKM(5,3); }
 
 OP( 0x88, i_mov_br8   ) { UINT8  src; GetModRM; src = RegByte(ModRM);   PutRMByte(ModRM,src);   CLKM(1,1);          }
-OP( 0x89, i_mov_wr16  ) { NEC_OP_MOV_WR16(return); }
-OP( 0x8a, i_mov_r8b   ) { NEC_OP_MOV_R8B(return); }
-OP( 0x8b, i_mov_r16w  ) { NEC_OP_MOV_R16W(return); }
+OP_IRAM( 0x89, i_mov_wr16  ) { NEC_OP_MOV_WR16(return); }
+OP_IRAM( 0x8a, i_mov_r8b   ) { NEC_OP_MOV_R8B(return); }
+OP_IRAM( 0x8b, i_mov_r16w  ) { NEC_OP_MOV_R16W(return); }
 OP( 0x8c, i_mov_wsreg ) { GetModRM; PutRMWord(ModRM,I.sregs[(ModRM & 0x38) >> 3]);              CLKM(1,1); }
 OP( 0x8d, i_lea       ) { UINT16 ModRM = FETCH; (void)(*GetEA[ModRM])(); RegWord(ModRM)=EO;     CLK(1); }
-OP( 0x8e, i_mov_sregw ) { UINT16 src; GetModRM; src = GetRMWord(ModRM); CLKM(3,2);
+OP_IRAM( 0x8e, i_mov_sregw ) { UINT16 src; GetModRM; src = GetRMWord(ModRM); CLKM(3,2);
     switch (ModRM & 0x38) {
         case 0x00: SET_SEG(ES,src); break; /* mov es,ew */
         case 0x08: SET_CS(src); break; /* mov cs,ew */
@@ -1172,7 +1175,7 @@ OP( 0x8e, i_mov_sregw ) { UINT16 src; GetModRM; src = GetRMWord(ModRM); CLKM(3,2
     no_interrupt=1;
 }
 OP( 0x8f, i_popw ) { UINT16 tmp; GetModRM; POP(tmp); PutRMWord(ModRM,tmp); CLKM(3,1); }
-OP( 0x90, i_nop  ) { CLK(1);
+OP_IRAM( 0x90, i_nop  ) { CLK(1);
     /* Cycle skip for idle loops (0: NOP  1:  JMP 0) */
     if (no_interrupt==0 && nec_ICount>0 && (PEEKOP(cs_base+I.ip))==0xeb && (PEEK(cs_base+I.ip+1))==0xfd)
         nec_ICount%=15;
@@ -1187,7 +1190,7 @@ OP( 0x97, i_xchg_axdi ) { XchgAWReg(IY); CLK(3); }
 
 OP( 0x98, i_cbw       ) { I.regs.b[AH] = (I.regs.b[AL] & 0x80) ? 0xff : 0;  CLK(1); }
 OP( 0x99, i_cwd       ) { I.regs.w[DW] = (I.regs.b[AH] & 0x80) ? 0xffff : 0;    CLK(1); }
-OP( 0x9a, i_call_far  ) { UINT32 tmp, tmp2; FETCHWORD(tmp); FETCHWORD(tmp2); PUSH(I.sregs[CS]); PUSH(I.ip); I.ip = (WORD)tmp; SET_CS(tmp2); CLK(10); }
+OP_IRAM( 0x9a, i_call_far  ) { UINT32 tmp, tmp2; FETCHWORD(tmp); FETCHWORD(tmp2); PUSH(I.sregs[CS]); PUSH(I.ip); I.ip = (WORD)tmp; SET_CS(tmp2); CLK(10); }
 OP( 0x9b, i_wait      ) { ; }
 OP( 0x9c, i_pushf     ) { PUSH( CompressFlags() ); CLK(2); }
 OP( 0x9d, i_popf      ) { UINT32 tmp; POP(tmp); ExpandFlags(tmp); CLK(3);}
@@ -1195,24 +1198,24 @@ OP( 0x9e, i_sahf      ) { UINT32 tmp = (CompressFlags() & 0xff00) | (I.regs.b[AH
 OP( 0x9f, i_lahf      ) { I.regs.b[AH] = CompressFlags() & 0xff; CLK(2); }
 
 OP( 0xa0, i_mov_aldisp ) { UINT32 addr; FETCHWORD(addr); I.regs.b[AL] = GetMemB(DS, addr); CLK(1); }
-OP( 0xa1, i_mov_axdisp ) { NEC_OP_MOV_AXDISP(); }
+OP_IRAM( 0xa1, i_mov_axdisp ) { NEC_OP_MOV_AXDISP(); }
 OP( 0xa2, i_mov_dispal ) { UINT32 addr; FETCHWORD(addr); PutMemB(DS, addr, I.regs.b[AL]);  CLK(1); }
 OP( 0xa3, i_mov_dispax ) { UINT32 addr; FETCHWORD(addr); PutMemW(DS, addr, I.regs.w[AW]); CLK(1); }
-OP( 0xa4, i_movsb      ) { UINT32 tmp = GetMemB(DS,I.regs.w[IX]); PutMemB(ES,I.regs.w[IY], tmp); I.regs.w[IY] += -2 * I.DF + 1; I.regs.w[IX] += -2 * I.DF + 1; CLK(5); }
-OP( 0xa5, i_movsw      ) { UINT32 tmp = GetMemW(DS,I.regs.w[IX]); PutMemW(ES,I.regs.w[IY], tmp); I.regs.w[IY] += -4 * I.DF + 2; I.regs.w[IX] += -4 * I.DF + 2; CLK(5); }
-OP( 0xa6, i_cmpsb      ) { UINT32 src = GetMemB(ES, I.regs.w[IY]); UINT32 dst = GetMemB(DS, I.regs.w[IX]); SUBB; I.regs.w[IY] += -2 * I.DF + 1; I.regs.w[IX] += -2 * I.DF + 1; CLK(6); }
-OP( 0xa7, i_cmpsw      ) { UINT32 src = GetMemW(ES, I.regs.w[IY]); UINT32 dst = GetMemW(DS, I.regs.w[IX]); SUBW; I.regs.w[IY] += -4 * I.DF + 2; I.regs.w[IX] += -4 * I.DF + 2; CLK(6); }
+OP_IRAM( 0xa4, i_movsb      ) { UINT32 tmp = GetMemB(DS,I.regs.w[IX]); PutMemB(ES,I.regs.w[IY], tmp); I.regs.w[IY] += -2 * I.DF + 1; I.regs.w[IX] += -2 * I.DF + 1; CLK(5); }
+OP_IRAM( 0xa5, i_movsw      ) { UINT32 tmp = GetMemW(DS,I.regs.w[IX]); PutMemW(ES,I.regs.w[IY], tmp); I.regs.w[IY] += -4 * I.DF + 2; I.regs.w[IX] += -4 * I.DF + 2; CLK(5); }
+OP_IRAM( 0xa6, i_cmpsb      ) { UINT32 src = GetMemB(ES, I.regs.w[IY]); UINT32 dst = GetMemB(DS, I.regs.w[IX]); SUBB; I.regs.w[IY] += -2 * I.DF + 1; I.regs.w[IX] += -2 * I.DF + 1; CLK(6); }
+OP_IRAM( 0xa7, i_cmpsw      ) { UINT32 src = GetMemW(ES, I.regs.w[IY]); UINT32 dst = GetMemW(DS, I.regs.w[IX]); SUBW; I.regs.w[IY] += -4 * I.DF + 2; I.regs.w[IX] += -4 * I.DF + 2; CLK(6); }
 
 OP( 0xa8, i_test_ald8  ) { DEF_ald8;  ANDB; CLK(1); }
 OP( 0xa9, i_test_axd16 ) { DEF_axd16; ANDW; CLK(1); }
-OP( 0xaa, i_stosb      ) { PutMemB(ES,I.regs.w[IY],I.regs.b[AL]);   I.regs.w[IY] += -2 * I.DF + 1; CLK(3);  }
-OP( 0xab, i_stosw      ) { PutMemW(ES,I.regs.w[IY],I.regs.w[AW]);   I.regs.w[IY] += -4 * I.DF + 2; CLK(3);  }
-OP( 0xac, i_lodsb      ) { I.regs.b[AL] = GetMemB(DS,I.regs.w[IX]); I.regs.w[IX] += -2 * I.DF + 1; CLK(3);  }
-OP( 0xad, i_lodsw      ) { I.regs.w[AW] = GetMemW(DS,I.regs.w[IX]); I.regs.w[IX] += -4 * I.DF + 2; CLK(3); }
+OP_IRAM( 0xaa, i_stosb      ) { PutMemB(ES,I.regs.w[IY],I.regs.b[AL]);   I.regs.w[IY] += -2 * I.DF + 1; CLK(3);  }
+OP_IRAM( 0xab, i_stosw      ) { PutMemW(ES,I.regs.w[IY],I.regs.w[AW]);   I.regs.w[IY] += -4 * I.DF + 2; CLK(3);  }
+OP_IRAM( 0xac, i_lodsb      ) { I.regs.b[AL] = GetMemB(DS,I.regs.w[IX]); I.regs.w[IX] += -2 * I.DF + 1; CLK(3);  }
+OP_IRAM( 0xad, i_lodsw      ) { I.regs.w[AW] = GetMemW(DS,I.regs.w[IX]); I.regs.w[IX] += -4 * I.DF + 2; CLK(3); }
 OP( 0xae, i_scasb      ) { UINT32 src = GetMemB(ES, I.regs.w[IY]);  UINT32 dst = I.regs.b[AL]; SUBB; I.regs.w[IY] += -2 * I.DF + 1; CLK(4);  }
 OP( 0xaf, i_scasw      ) { UINT32 src = GetMemW(ES, I.regs.w[IY]);  UINT32 dst = I.regs.w[AW]; SUBW; I.regs.w[IY] += -4 * I.DF + 2; CLK(4); }
 
-OP( 0xb0, i_mov_ald8  ) { I.regs.b[AL] = FETCH; CLK(1); }
+OP_IRAM( 0xb0, i_mov_ald8  ) { I.regs.b[AL] = FETCH; CLK(1); }
 OP( 0xb1, i_mov_cld8  ) { I.regs.b[CL] = FETCH; CLK(1); }
 OP( 0xb2, i_mov_dld8  ) { I.regs.b[DL] = FETCH; CLK(1); }
 OP( 0xb3, i_mov_bld8  ) { I.regs.b[BL] = FETCH; CLK(1); }
@@ -1221,16 +1224,16 @@ OP( 0xb5, i_mov_chd8  ) { I.regs.b[CH] = FETCH; CLK(1); }
 OP( 0xb6, i_mov_dhd8  ) { I.regs.b[DH] = FETCH; CLK(1); }
 OP( 0xb7, i_mov_bhd8  ) { I.regs.b[BH] = FETCH; CLK(1); }
 
-OP( 0xb8, i_mov_axd16 ) { I.regs.b[AL] = FETCH;  I.regs.b[AH] = FETCH;  CLK(1); }
+OP_IRAM( 0xb8, i_mov_axd16 ) { I.regs.b[AL] = FETCH;  I.regs.b[AH] = FETCH;  CLK(1); }
 OP( 0xb9, i_mov_cxd16 ) { I.regs.b[CL] = FETCH;  I.regs.b[CH] = FETCH;  CLK(1); }
-OP( 0xba, i_mov_dxd16 ) { I.regs.b[DL] = FETCH;  I.regs.b[DH] = FETCH;  CLK(1); }
-OP( 0xbb, i_mov_bxd16 ) { I.regs.b[BL] = FETCH;  I.regs.b[BH] = FETCH;  CLK(1); }
+OP_IRAM( 0xba, i_mov_dxd16 ) { I.regs.b[DL] = FETCH;  I.regs.b[DH] = FETCH;  CLK(1); }
+OP_IRAM( 0xbb, i_mov_bxd16 ) { I.regs.b[BL] = FETCH;  I.regs.b[BH] = FETCH;  CLK(1); }
 OP( 0xbc, i_mov_spd16 ) { I.regs.b[SPL] = FETCH; I.regs.b[SPH] = FETCH; CLK(1); }
 OP( 0xbd, i_mov_bpd16 ) { I.regs.b[BPL] = FETCH; I.regs.b[BPH] = FETCH; CLK(1); }
 OP( 0xbe, i_mov_sid16 ) { I.regs.b[IXL] = FETCH; I.regs.b[IXH] = FETCH; CLK(1); }
 OP( 0xbf, i_mov_did16 ) { I.regs.b[IYL] = FETCH; I.regs.b[IYH] = FETCH; CLK(1); }
 
-OP( 0xc0, i_rotshft_bd8 ) {
+OP_IRAM( 0xc0, i_rotshft_bd8 ) {
     UINT32 src, dst; UINT8 c;
     GetModRM; src = (unsigned)GetRMByte(ModRM); dst=src;
     c=FETCH;
@@ -1248,7 +1251,7 @@ OP( 0xc0, i_rotshft_bd8 ) {
     }
 }
 
-OP( 0xc1, i_rotshft_wd8 ) {
+OP_IRAM( 0xc1, i_rotshft_wd8 ) {
     UINT32 src, dst;  UINT8 c;
     GetModRM; src = (unsigned)GetRMWord(ModRM); dst=src;
     c=FETCH;
@@ -1267,7 +1270,7 @@ OP( 0xc1, i_rotshft_wd8 ) {
 }
 
 OP( 0xc2, i_ret_d16  ) { UINT32 count = FETCH; count += FETCH << 8; POP(I.ip); I.regs.w[SP]+=count; CLK(6); }
-OP( 0xc3, i_ret      ) { POP(I.ip); CLK(6); }
+OP_IRAM( 0xc3, i_ret      ) { POP(I.ip); CLK(6); }
 OP( 0xc4, i_les_dw   ) { GetModRM; WORD tmp = GetRMWord(ModRM); RegWord(ModRM)=tmp; SET_SEG(ES,GetnextRMWord); CLK(6); }
 OP( 0xc5, i_lds_dw   ) { GetModRM; WORD tmp = GetRMWord(ModRM); RegWord(ModRM)=tmp; SET_SEG(DS,GetnextRMWord); CLK(6); }
 OP( 0xc6, i_mov_bd8  ) { GetModRM; PutImmRMByte(ModRM); CLK(1); }
@@ -1295,11 +1298,11 @@ OP( 0xc9, i_leave ) {
     CLK(2);
 }
 OP( 0xca, i_retf_d16  ) { UINT32 count = FETCH; UINT32 tmp; count += FETCH << 8; POP(I.ip); POP(tmp); SET_CS(tmp); I.regs.w[SP]+=count; CLK(9); }
-OP( 0xcb, i_retf      ) { UINT32 tmp; POP(I.ip); POP(tmp); SET_CS(tmp); CLK(8); }
+OP_IRAM( 0xcb, i_retf      ) { UINT32 tmp; POP(I.ip); POP(tmp); SET_CS(tmp); CLK(8); }
 OP( 0xcc, i_int3      ) { nec_interrupt(3,0); CLK(9); }
 OP( 0xcd, i_int       ) { nec_interrupt(FETCH,0); CLK(10); }
 OP( 0xce, i_into      ) { if (OF) { nec_interrupt(4,0); CLK(13); } else CLK(6); }
-OP( 0xcf, i_iret      ) { UINT32 tmp; POP(I.ip); POP(tmp); SET_CS(tmp); i_popf(); CLK(10); }
+OP_IRAM( 0xcf, i_iret      ) { UINT32 tmp; POP(I.ip); POP(tmp); SET_CS(tmp); i_popf(); CLK(10); }
 
 OP( 0xd0, i_rotshft_b ) {
     UINT32 src, dst; GetModRM; src = (UINT32)GetRMByte(ModRM); dst=src;
@@ -1373,17 +1376,17 @@ OP( 0xd8, i_fpo    ) { GetModRM; CLK(3);     } /* nop at V30MZ? */
 
 OP( 0xe0, i_loopne ) { INT8 disp = (INT8)FETCH; I.regs.w[CW]--; if (!ZF && I.regs.w[CW]) { I.ip = (WORD)(I.ip+disp);  CLK(6); } else CLK(3); }
 OP( 0xe1, i_loope  ) { INT8 disp = (INT8)FETCH; I.regs.w[CW]--; if ( ZF && I.regs.w[CW]) { I.ip = (WORD)(I.ip+disp);  CLK(6); } else CLK(3); }
-OP( 0xe2, i_loop   ) { NEC_OP_LOOP(return); }
+OP_IRAM( 0xe2, i_loop   ) { NEC_OP_LOOP(return); }
 OP( 0xe3, i_jcxz   ) { INT8 disp = (INT8)FETCH; if (I.regs.w[CW] == 0) { I.ip = (WORD)(I.ip+disp);  CLK(4); } else CLK(1); }
-OP( 0xe4, i_inal   ) { UINT8 port = FETCH; I.regs.b[AL] = read_port(port); CLK(6);  }
+OP_IRAM( 0xe4, i_inal   ) { UINT8 port = FETCH; I.regs.b[AL] = read_port(port); CLK(6);  }
 OP( 0xe5, i_inax   ) { UINT8 port = FETCH; I.regs.b[AL] = read_port(port); I.regs.b[AH] = read_port(port+1); CLK(6); }
-OP( 0xe6, i_outal  ) { UINT8 port = FETCH; write_port(port, I.regs.b[AL]); CLK(6);  }
-OP( 0xe7, i_outax  ) { UINT8 port = FETCH; write_port(port, I.regs.b[AL]); write_port(port+1, I.regs.b[AH]); CLK(6);    }
+OP_IRAM( 0xe6, i_outal  ) { UINT8 port = FETCH; write_port(port, I.regs.b[AL]); CLK(6);  }
+OP_IRAM( 0xe7, i_outax  ) { UINT8 port = FETCH; write_port(port, I.regs.b[AL]); write_port(port+1, I.regs.b[AH]); CLK(6);    }
 
-OP( 0xe8, i_call_d16 ) { UINT32 tmp; FETCHWORD(tmp); PUSH(I.ip); I.ip = (WORD)(I.ip+(INT16)tmp); CLK(5); }
+OP_IRAM( 0xe8, i_call_d16 ) { UINT32 tmp; FETCHWORD(tmp); PUSH(I.ip); I.ip = (WORD)(I.ip+(INT16)tmp); CLK(5); }
 OP( 0xe9, i_jmp_d16  ) { UINT32 tmp; FETCHWORD(tmp); I.ip = (WORD)(I.ip+(INT16)tmp); CLK(4); }
 OP( 0xea, i_jmp_far  ) { UINT32 tmp,tmp1; FETCHWORD(tmp); FETCHWORD(tmp1); SET_CS(tmp1);    I.ip = (WORD)tmp; CLK(7);   }
-OP( 0xeb, i_jmp_d8   ) { int tmp = (int)((INT8)FETCH); CLK(4);
+OP_IRAM( 0xeb, i_jmp_d8   ) { int tmp = (int)((INT8)FETCH); CLK(4);
     if (tmp==-2 && no_interrupt==0 && nec_ICount>0) nec_ICount%=12; /* cycle skip */
     I.ip = (WORD)(I.ip+tmp);
 }
@@ -1651,7 +1654,7 @@ static NEC_CORE_CODE int nec_fast_rep_lodsw(UINT16 c, UINT32 per_cycle, int thro
     return 1;
 }
 
-OP( 0xf2, i_repne    ) { UINT32 next = FETCHOP; UINT16 c = I.regs.w[CW];
+OP_IRAM( 0xf2, i_repne    ) { UINT32 next = FETCHOP; UINT16 c = I.regs.w[CW];
     switch(next) { /* Segments */
         case 0x26:  seg_prefix=TRUE;    prefix_base=seg_base[ES]; next = FETCHOP; CLK(2); break;
         case 0x2e:  seg_prefix=TRUE;    prefix_base=seg_base[CS]; next = FETCHOP; CLK(2); break;
@@ -1679,7 +1682,7 @@ OP( 0xf2, i_repne    ) { UINT32 next = FETCHOP; UINT16 c = I.regs.w[CW];
     }
     seg_prefix=FALSE;
 }
-OP( 0xf3, i_repe     ) { UINT32 next = FETCHOP; UINT16 c = I.regs.w[CW];
+OP_IRAM( 0xf3, i_repe     ) { UINT32 next = FETCHOP; UINT16 c = I.regs.w[CW];
     switch(next) { /* Segments */
         case 0x26:  seg_prefix=TRUE;    prefix_base=seg_base[ES]; next = FETCHOP; CLK(2); break;
         case 0x2e:  seg_prefix=TRUE;    prefix_base=seg_base[CS]; next = FETCHOP; CLK(2); break;
@@ -1707,14 +1710,14 @@ OP( 0xf3, i_repe     ) { UINT32 next = FETCHOP; UINT16 c = I.regs.w[CW];
     }
     seg_prefix=FALSE;
 }
-OP( 0xf4, i_hlt ) { nec_ICount=0; }
+OP_IRAM( 0xf4, i_hlt ) { nec_ICount=0; }
 
 
 
 
 
 OP( 0xf5, i_cmc ) { I.CarryVal = !CF; CLK(4); }
-OP( 0xf6, i_f6pre ) { UINT32 tmp; UINT32 uresult,uresult2; INT32 result,result2;
+OP_IRAM( 0xf6, i_f6pre ) { UINT32 tmp; UINT32 uresult,uresult2; INT32 result,result2;
     GetModRM; tmp = GetRMByte(ModRM);
     switch (ModRM & 0x38) {
         case 0x00: tmp &= FETCH; I.CarryVal = I.OverVal = I.AuxVal=0; SetSZPF_Byte(tmp); CLKM(2,1); break; /* TEST */
@@ -1749,13 +1752,13 @@ OP( 0xfa, i_di    ) { SetIF(0);         CLK(4); }
 OP( 0xfb, i_ei    ) { SetIF(1);         CLK(4); }
 OP( 0xfc, i_cld   ) { SetDF(0);         CLK(4); }
 OP( 0xfd, i_std   ) { SetDF(1);         CLK(4); }
-OP( 0xfe, i_fepre ) { UINT32 tmp, tmp1; GetModRM; tmp=GetRMByte(ModRM);
+OP_IRAM( 0xfe, i_fepre ) { UINT32 tmp, tmp1; GetModRM; tmp=GetRMByte(ModRM);
     switch(ModRM & 0x38) {
         case 0x00: tmp1 = tmp+1; I.OverVal = (tmp==0x7f); SetAF(tmp1,tmp,1); SetSZPF_Byte(tmp1); PutbackRMByte(ModRM,(BYTE)tmp1); CLKM(3,1); break; /* INC */
         case 0x08: tmp1 = tmp-1; I.OverVal = (tmp==0x80); SetAF(tmp1,tmp,1); SetSZPF_Byte(tmp1); PutbackRMByte(ModRM,(BYTE)tmp1); CLKM(3,1); break; /* DEC */
     }
 }
-OP( 0xff, i_ffpre ) { UINT32 tmp, tmp1; GetModRM; tmp=GetRMWord(ModRM);
+OP_IRAM( 0xff, i_ffpre ) { UINT32 tmp, tmp1; GetModRM; tmp=GetRMWord(ModRM);
     switch(ModRM & 0x38) {
         case 0x00: tmp1 = tmp+1; I.OverVal = (tmp==0x7fff); SetAF(tmp1,tmp,1); SetSZPF_Word(tmp1); PutbackRMWord(ModRM,(WORD)tmp1); CLKM(3,1); break; /* INC */
         case 0x08: tmp1 = tmp-1; I.OverVal = (tmp==0x8000); SetAF(tmp1,tmp,1); SetSZPF_Word(tmp1); PutbackRMWord(ModRM,(WORD)tmp1); CLKM(3,1); break; /* DEC */
