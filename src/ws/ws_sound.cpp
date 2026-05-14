@@ -10,7 +10,19 @@ extern "C" {
 
 static constexpr int kNativeSampleRate = 24000;
 static int           g_sample_rate = kNativeSampleRate;
-static constexpr int kDefaultPeriodMs = 8;
+#ifndef WS_AUDIO_PERIOD_MS
+#define WS_AUDIO_PERIOD_MS 8
+#endif
+#ifndef WS_AUDIO_DMA_LEN
+#define WS_AUDIO_DMA_LEN 320
+#endif
+#ifndef WS_AUDIO_DMA_COUNT
+#define WS_AUDIO_DMA_COUNT 6
+#endif
+#ifndef WS_AUDIO_POLL_MS
+#define WS_AUDIO_POLL_MS 0
+#endif
+static constexpr int kDefaultPeriodMs = WS_AUDIO_PERIOD_MS;
 static int           g_chunk       = 0; 
 static constexpr int kChannel      = 0;
 static constexpr int kMaxChunk     = 320;
@@ -24,11 +36,22 @@ static volatile uint32_t s_statBlocks = 0;
 static volatile uint32_t s_statUnderflows = 0;
 static volatile uint32_t s_statMaxAvailable = 0;
 static volatile uint32_t s_statMaxQueueDepth = 0;
+static volatile uint32_t s_statMinAvailable = 0xffffffffu;
+static volatile uint32_t s_statAvailableSum = 0;
+static volatile uint32_t s_statMissingTotal = 0;
+static volatile uint32_t s_statMissingMax = 0;
+static volatile uint32_t s_statQueueDepth[3] = { 0, 0, 0 };
+static volatile uint32_t s_statPostQueueDepth[3] = { 0, 0, 0 };
+static volatile uint32_t s_statPlayFails = 0;
 #define WS_SOUND_BENCH_INC(field)       (field++)
+#define WS_SOUND_BENCH_ADD(field, val)  (field += (uint32_t)(val))
 #define WS_SOUND_BENCH_MAX(field, val)  do { uint32_t _v = (uint32_t)(val); if (_v > field) field = _v; } while (0)
+#define WS_SOUND_BENCH_MIN(field, val)  do { uint32_t _v = (uint32_t)(val); if (_v < field) field = _v; } while (0)
 #else
 #define WS_SOUND_BENCH_INC(field)       ((void)0)
+#define WS_SOUND_BENCH_ADD(field, val)  ((void)0)
 #define WS_SOUND_BENCH_MAX(field, val)  ((void)0)
+#define WS_SOUND_BENCH_MIN(field, val)  ((void)0)
 #endif
 
 // Task
@@ -61,8 +84,15 @@ static inline void build_block_from_apu(int16_t* dst) {
   int need = g_chunk;
   int have = apuBufLen();
   WS_SOUND_BENCH_INC(s_statBlocks);
+  WS_SOUND_BENCH_MIN(s_statMinAvailable, have);
+  WS_SOUND_BENCH_ADD(s_statAvailableSum, have);
   WS_SOUND_BENCH_MAX(s_statMaxAvailable, have);
-  if (have < need) WS_SOUND_BENCH_INC(s_statUnderflows);
+  if (have < need) {
+    const uint32_t missing = (uint32_t)(need - have);
+    WS_SOUND_BENCH_INC(s_statUnderflows);
+    WS_SOUND_BENCH_ADD(s_statMissingTotal, missing);
+    WS_SOUND_BENCH_MAX(s_statMissingMax, missing);
+  }
 
   // Si pas assez
   int to_read = (have >= need) ? need : have;
@@ -89,7 +119,7 @@ static inline void build_block_from_apu(int16_t* dst) {
 }
 
 static inline void queue_block(const int16_t* pcm) {
-  (void)M5Cardputer.Speaker.playRaw(
+  const bool ok = M5Cardputer.Speaker.playRaw(
     pcm,
     (size_t)g_chunk,
     (uint32_t)g_sample_rate,
@@ -98,6 +128,11 @@ static inline void queue_block(const int16_t* pcm) {
     kChannel,
     false // dont stop current sound
   );
+  if (!ok) WS_SOUND_BENCH_INC(s_statPlayFails);
+#ifdef BENCHMARK_LOGS
+  size_t queued = M5Cardputer.Speaker.isPlaying(kChannel);
+  s_statPostQueueDepth[queued < 2 ? queued : 2]++;
+#endif
 }
 
 // -----------------------------------------------------------------------------
@@ -130,8 +165,8 @@ extern "C" void ws_sound_init(int sample_rate_hz) {
     auto cfg = M5Cardputer.Speaker.config();
     cfg.sample_rate       = g_sample_rate;
     cfg.stereo            = false;  // sortie mono
-    cfg.dma_buf_len       = 320;
-    cfg.dma_buf_count     = 6;
+    cfg.dma_buf_len       = WS_AUDIO_DMA_LEN;
+    cfg.dma_buf_count     = WS_AUDIO_DMA_COUNT;
     cfg.task_priority     = 4;
     cfg.task_pinned_core  = 0;
     M5Cardputer.Speaker.config(cfg);
@@ -146,6 +181,17 @@ extern "C" void ws_sound_init(int sample_rate_hz) {
   s_statUnderflows = 0;
   s_statMaxAvailable = 0;
   s_statMaxQueueDepth = 0;
+  s_statMinAvailable = 0xffffffffu;
+  s_statAvailableSum = 0;
+  s_statMissingTotal = 0;
+  s_statMissingMax = 0;
+  s_statQueueDepth[0] = 0;
+  s_statQueueDepth[1] = 0;
+  s_statQueueDepth[2] = 0;
+  s_statPostQueueDepth[0] = 0;
+  s_statPostQueueDepth[1] = 0;
+  s_statPostQueueDepth[2] = 0;
+  s_statPlayFails = 0;
 #endif
 }
 
@@ -161,6 +207,9 @@ extern "C" void ws_sound_shutdown(void) {
 extern "C" void ws_sound_frame(void) {
   size_t queued = M5Cardputer.Speaker.isPlaying(kChannel);
   WS_SOUND_BENCH_MAX(s_statMaxQueueDepth, queued);
+#ifdef BENCHMARK_LOGS
+  s_statQueueDepth[queued < 2 ? queued : 2]++;
+#endif
 
   if (queued == 0) {
     // Amorcer 2 blocs
@@ -198,7 +247,10 @@ extern "C" void ws_sound_start_task(uint32_t period_ms, int core) {
 
   if (period_ms == 0) period_ms = kDefaultPeriodMs;
   set_chunk_for_period(period_ms);
-  s_periodTicks = pdMS_TO_TICKS(period_ms);
+  uint32_t poll_ms = WS_AUDIO_POLL_MS ? WS_AUDIO_POLL_MS : period_ms;
+  if (poll_ms == 0) poll_ms = 1;
+  s_periodTicks = pdMS_TO_TICKS(poll_ms);
+  if (s_periodTicks == 0) s_periodTicks = 1;
 
   s_runAudio = true;
   xTaskCreatePinnedToCore(ws_audio_task, "ws_audio", 2048, nullptr, 6, &s_taskAudio, core);
@@ -214,14 +266,48 @@ extern "C" void ws_sound_stop_task(void) {
 extern "C" void ws_sound_get_and_reset_stats(uint32_t* blocks,
                                               uint32_t* underflows,
                                               uint32_t* max_available,
-                                              uint32_t* max_queue_depth) {
-  if (blocks) *blocks = s_statBlocks;
+                                              uint32_t* max_queue_depth,
+                                              uint32_t* min_available,
+                                              uint32_t* avg_available,
+                                              uint32_t* missing_total,
+                                              uint32_t* missing_max,
+                                              uint32_t* queue0,
+                                              uint32_t* queue1,
+                                              uint32_t* queue2,
+                                              uint32_t* post_queue0,
+                                              uint32_t* post_queue1,
+                                              uint32_t* post_queue2,
+                                              uint32_t* play_fails) {
+  const uint32_t blockCount = s_statBlocks;
+  if (blocks) *blocks = blockCount;
   if (underflows) *underflows = s_statUnderflows;
   if (max_available) *max_available = s_statMaxAvailable;
   if (max_queue_depth) *max_queue_depth = s_statMaxQueueDepth;
+  if (min_available) *min_available = (s_statMinAvailable == 0xffffffffu) ? 0 : s_statMinAvailable;
+  if (avg_available) *avg_available = blockCount ? (s_statAvailableSum / blockCount) : 0;
+  if (missing_total) *missing_total = s_statMissingTotal;
+  if (missing_max) *missing_max = s_statMissingMax;
+  if (queue0) *queue0 = s_statQueueDepth[0];
+  if (queue1) *queue1 = s_statQueueDepth[1];
+  if (queue2) *queue2 = s_statQueueDepth[2];
+  if (post_queue0) *post_queue0 = s_statPostQueueDepth[0];
+  if (post_queue1) *post_queue1 = s_statPostQueueDepth[1];
+  if (post_queue2) *post_queue2 = s_statPostQueueDepth[2];
+  if (play_fails) *play_fails = s_statPlayFails;
   s_statBlocks = 0;
   s_statUnderflows = 0;
   s_statMaxAvailable = 0;
   s_statMaxQueueDepth = 0;
+  s_statMinAvailable = 0xffffffffu;
+  s_statAvailableSum = 0;
+  s_statMissingTotal = 0;
+  s_statMissingMax = 0;
+  s_statQueueDepth[0] = 0;
+  s_statQueueDepth[1] = 0;
+  s_statQueueDepth[2] = 0;
+  s_statPostQueueDepth[0] = 0;
+  s_statPostQueueDepth[1] = 0;
+  s_statPostQueueDepth[2] = 0;
+  s_statPlayFails = 0;
 }
 #endif

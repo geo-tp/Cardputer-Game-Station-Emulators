@@ -15,6 +15,10 @@ extern "C" {
 #include "ws_save.h"
 #include "share/emu_log_cpp.h"
 
+#ifndef WS_AUDIO_PERIOD_MS
+#define WS_AUDIO_PERIOD_MS 8
+#endif
+
 static void ws_update_adaptive_frameskip(uint32_t core_us, uint32_t frame_us)
 {
   static uint32_t samples = 0;
@@ -77,7 +81,7 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
   // SRAM save/load
   ws_save_init(rom_name);
   ws_save_load();
-  ws_sound_start_task(8, 0);
+  ws_sound_start_task(WS_AUDIO_PERIOD_MS, 0);
 
   // Timing
   const uint32_t frame_us = 1000000u / 75u; // 13.3 ms
@@ -122,7 +126,15 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
       ws_display_get_and_reset_stats(&dispFrames, &dispTotalUs, &dispMaxUs, &dispPending);
 
       uint32_t audioBlocks = 0, audioUnderflows = 0, audioMaxAvailable = 0, audioMaxQueue = 0;
-      ws_sound_get_and_reset_stats(&audioBlocks, &audioUnderflows, &audioMaxAvailable, &audioMaxQueue);
+      uint32_t audioMinAvailable = 0, audioAvgAvailable = 0, audioMissingTotal = 0, audioMissingMax = 0;
+      uint32_t audioQueue0 = 0, audioQueue1 = 0, audioQueue2 = 0;
+      uint32_t audioPostQueue0 = 0, audioPostQueue1 = 0, audioPostQueue2 = 0, audioPlayFails = 0;
+      ws_sound_get_and_reset_stats(&audioBlocks, &audioUnderflows, &audioMaxAvailable, &audioMaxQueue,
+                                   &audioMinAvailable, &audioAvgAvailable,
+                                   &audioMissingTotal, &audioMissingMax,
+                                   &audioQueue0, &audioQueue1, &audioQueue2,
+                                   &audioPostQueue0, &audioPostQueue1, &audioPostQueue2,
+                                   &audioPlayFails);
 
       const float coreAvgMs = frameCount ? (float)benchCoreTotalUs / (float)frameCount / 1000.0f : 0.0f;
       const float dispAvgMs = dispFrames ? (float)dispTotalUs / (float)dispFrames / 1000.0f : 0.0f;
@@ -181,6 +193,14 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
       EMU_LOG("[WS][BENCH] audio blocks=%lu underflows=%lu maxAvail=%lu maxQueue=%lu\n",
               (unsigned long)audioBlocks, (unsigned long)audioUnderflows,
               (unsigned long)audioMaxAvailable, (unsigned long)audioMaxQueue);
+      EMU_LOG("[WS][AUD] avail min/avg/max=%lu/%lu/%lu missing total/max=%lu/%lu q0/q1/q2=%lu/%lu/%lu post=%lu/%lu/%lu playFail=%lu\n",
+              (unsigned long)audioMinAvailable, (unsigned long)audioAvgAvailable,
+              (unsigned long)audioMaxAvailable,
+              (unsigned long)audioMissingTotal, (unsigned long)audioMissingMax,
+              (unsigned long)audioQueue0, (unsigned long)audioQueue1,
+              (unsigned long)audioQueue2,
+              (unsigned long)audioPostQueue0, (unsigned long)audioPostQueue1,
+              (unsigned long)audioPostQueue2, (unsigned long)audioPlayFails);
       const uint32_t heapFree = esp_get_free_heap_size();
       const uint32_t largest8 = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
       const uint32_t largestInternal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
