@@ -1844,6 +1844,37 @@ NEC_CORE_CODE int nec_execute(int cycles)
             case 0x03:
                 NEC_OP_ADD_R16W(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x0a: NEC_OP_OR_R8B(goto nec_dispatch_done); goto nec_dispatch_done;
+            case 0x22:
+            {
+                UINT32 ModRM = FETCH, src, dst;
+                dst = RegByte(ModRM);
+                src = GetRMByte(ModRM);
+                ANDB;
+                RegByte(ModRM) = dst;
+                CLKM(2,1);
+                goto nec_dispatch_done;
+            }
+            case 0x26:
+            {
+                const UINT32 next = FETCHOP;
+                seg_prefix = TRUE;
+                prefix_base = seg_base[ES];
+                CLK(1);
+                if(next == 0x22)
+                {
+                    UINT32 ModRM = FETCH, src, dst;
+                    dst = RegByte(ModRM);
+                    src = GetRMByte(ModRM);
+                    ANDB;
+                    RegByte(ModRM) = dst;
+                    CLKM(2,1);
+                    seg_prefix = FALSE;
+                    goto nec_dispatch_done;
+                }
+                nec_instruction[next]();
+                seg_prefix = FALSE;
+                break;
+            }
             case 0x3b: NEC_OP_CMP_R16W(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x72: NEC_OP_JC(goto nec_dispatch_done); goto nec_dispatch_done;
             case 0x74: NEC_OP_JZ(goto nec_dispatch_done); goto nec_dispatch_done;

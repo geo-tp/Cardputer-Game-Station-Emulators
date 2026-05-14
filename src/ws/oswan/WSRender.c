@@ -3,6 +3,7 @@ $Date: 2009-10-30 05:26:46 +0100 (ven., 30 oct. 2009) $
 $Rev: 71 $
 */
 #include <string.h>
+#include <stdlib.h>
 
 #ifdef WS_PPU_IRAM
 #include <esp_attr.h>
@@ -64,6 +65,22 @@ WORD MonoColor[8];
 int Layer[3] = {1, 1, 1};
 int Segment[11];
 static DWORD PlaneLut[256];
+
+#if defined(WS_TILE_ROW_CACHE)
+#ifndef WS_TILE_ROW_CACHE_ENTRIES
+#define WS_TILE_ROW_CACHE_ENTRIES 2048
+#endif
+
+typedef struct WsTileRowCacheEntry {
+    DWORD sig;
+    WORD offset;
+    BYTE mode;
+    BYTE valid;
+    BYTE index[8];
+} WsTileRowCacheEntry;
+
+static WsTileRowCacheEntry* TileRowCache = NULL;
+#endif
 
 #ifdef WS_USE_SEGMENT_BUFFER
     WORD* SegmentBuffer = NULL;
@@ -151,6 +168,62 @@ static inline void DecodeTileRow(BYTE* index, const BYTE* data, int packedMode, 
 
     StorePackedPixels(index, pixels, hrev);
 }
+
+#if defined(WS_TILE_ROW_CACHE)
+static inline DWORD TileRowSignature(const BYTE* data, int color16)
+{
+    DWORD sig = (DWORD)data[0] | ((DWORD)data[1] << 8);
+    if(color16)
+    {
+        sig |= ((DWORD)data[2] << 16) | ((DWORD)data[3] << 24);
+    }
+    return sig;
+}
+
+static inline const BYTE* DecodeTileRowCached(BYTE* scratch, const BYTE* data,
+                                              int packedMode, int color16,
+                                              int hrev, unsigned int* decodeCalls)
+{
+    const unsigned int offset = (unsigned int)(data - IRAM);
+    const BYTE mode = (BYTE)((packedMode ? 1 : 0) |
+                             (color16 ? 2 : 0) |
+                             (hrev ? 4 : 0));
+    const DWORD sig = TileRowSignature(data, color16);
+
+    if(__builtin_expect(TileRowCache != NULL && offset < 0x10000u, 1))
+    {
+        const unsigned int slot =
+            ((offset >> 1) ^ (offset >> 5) ^ ((unsigned int)mode * 257u)) &
+            (WS_TILE_ROW_CACHE_ENTRIES - 1u);
+        WsTileRowCacheEntry* entry = &TileRowCache[slot];
+        if(entry->valid && entry->offset == (WORD)offset &&
+           entry->mode == mode && entry->sig == sig)
+        {
+            return entry->index;
+        }
+        if(decodeCalls) (*decodeCalls)++;
+        DecodeTileRow(entry->index, data, packedMode, color16, hrev);
+        entry->sig = sig;
+        entry->offset = (WORD)offset;
+        entry->mode = mode;
+        entry->valid = 1;
+        return entry->index;
+    }
+
+    if(decodeCalls) (*decodeCalls)++;
+    DecodeTileRow(scratch, data, packedMode, color16, hrev);
+    return scratch;
+}
+#else
+static inline const BYTE* DecodeTileRowCached(BYTE* scratch, const BYTE* data,
+                                              int packedMode, int color16,
+                                              int hrev, unsigned int* decodeCalls)
+{
+    if(decodeCalls) (*decodeCalls)++;
+    DecodeTileRow(scratch, data, packedMode, color16, hrev);
+    return scratch;
+}
+#endif
 
 static inline int IsZeroTileRow(const BYTE* data, int color16)
 {
@@ -251,6 +324,11 @@ void AllocateBuffers(void) {
     InitTileDecodeLut();
     Palette = (WORD (*)[16])calloc(16, sizeof(*Palette));
 
+#if defined(WS_TILE_ROW_CACHE)
+    TileRowCache = (WsTileRowCacheEntry*)calloc(WS_TILE_ROW_CACHE_ENTRIES,
+                                                sizeof(WsTileRowCacheEntry));
+#endif
+
     // SprTMap : 512 bytes
     SprTMap = (BYTE*)malloc(512 * sizeof(BYTE));
     memset(SprTMap, 0, 512 * sizeof(BYTE));
@@ -304,6 +382,13 @@ void FreeBuffers(void) {
         FrameBufferAlloc = NULL;
         FrameBuffer = NULL;
     }
+
+#if defined(WS_TILE_ROW_CACHE)
+    if (TileRowCache) {
+        free(TileRowCache);
+        TileRowCache = NULL;
+    }
+#endif
 
 #ifdef WS_USE_SEGMENT_BUFFER
     if (SegmentBuffer) {
@@ -479,9 +564,11 @@ WS_PPU_CODE void RefreshLine(int Line)
                 continue;
             }
 
-            WS_RENDER_DECODE_ROW(bgDecodeCalls, index, pbTData, packedMode,
-                                 color16, TMap & MAP_HREV);
-            RenderBgTile(&pSWrBuf, Palette[PalIndex], index, zeroTransparent);
+            const BYTE* rowIndex = DecodeTileRowCached(index, pbTData,
+                                                       packedMode, color16,
+                                                       TMap & MAP_HREV,
+                                                       &bgDecodeCalls);
+            RenderBgTile(&pSWrBuf, Palette[PalIndex], rowIndex, zeroTransparent);
         }
     }
 #if WS_RENDER_PROFILE_ON
@@ -593,16 +680,18 @@ WS_PPU_CODE void RefreshLine(int Line)
                 continue;
             }
 
-            WS_RENDER_DECODE_ROW(fgDecodeCalls, index, pbTData, packedMode,
-                                 color16, TMap & MAP_HREV);
+            const BYTE* rowIndex = DecodeTileRowCached(index, pbTData,
+                                                       packedMode, color16,
+                                                       TMap & MAP_HREV,
+                                                       &fgDecodeCalls);
             if(fgWindowEnabled)
             {
-                RenderFgTileWindow(&pSWrBuf, &pW, &pZ, Palette[PalIndex], index,
+                RenderFgTileWindow(&pSWrBuf, &pW, &pZ, Palette[PalIndex], rowIndex,
                                    zeroTransparent);
             }
             else
             {
-                RenderFgTileNoWindow(&pSWrBuf, &pZ, Palette[PalIndex], index,
+                RenderFgTileNoWindow(&pSWrBuf, &pZ, Palette[PalIndex], rowIndex,
                                      zeroTransparent);
             }
         }
@@ -726,8 +815,10 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
 
-            WS_RENDER_DECODE_ROW(spriteDecodeCalls, index, pbTData, packedMode,
-                                 color16, TMap & SPR_HREV);
+            const BYTE* rowIndex = DecodeTileRowCached(index, pbTData,
+                                                       packedMode, color16,
+                                                       TMap & SPR_HREV,
+                                                       &spriteDecodeCalls);
             const int zeroTransparent = color16 || (TMap & 0x0800);
 
             pW = WBuf + 8 + sprX + firstPixel;
@@ -760,7 +851,7 @@ WS_PPU_CODE void RefreshLine(int Line)
                         }
                     }
                 }
-                if((!index[i]) && zeroTransparent)
+                if((!rowIndex[i]) && zeroTransparent)
                 {
                     pSWrBuf++;
 #ifdef BENCHMARK_LOGS
@@ -776,7 +867,7 @@ WS_PPU_CODE void RefreshLine(int Line)
 #endif
                     continue;
                 }
-                *pSWrBuf++ = Palette[PalIndex][index[i]];
+                *pSWrBuf++ = Palette[PalIndex][rowIndex[i]];
 #ifdef BENCHMARK_LOGS
                 sprPixels++;
 #endif

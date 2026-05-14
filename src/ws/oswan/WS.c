@@ -351,6 +351,12 @@ static inline int WsGdmaSourceIsValid(DWORD source)
     return 1;
 }
 
+static inline int WsRangesOverlap(unsigned int aStart, unsigned int aLen,
+                                  unsigned int bStart, unsigned int bLen)
+{
+    return aStart < bStart + bLen && bStart < aStart + aLen;
+}
+
 static void WsSyncIramWriteSideEffects(WORD dst, WORD len)
 {
     unsigned int end = (unsigned int)dst + len;
@@ -438,25 +444,45 @@ static WS_CORE_CODE void WsRunGdma(void)
         {
             const int sourcePage = (int)((source >> 16) & 0x0F);
             const WORD sourceOff = (WORD)source;
+            unsigned int chunk;
+            unsigned int srcStart;
+            unsigned int dstStart;
             BYTE* src;
 
             if(!WsGdmaSourceIsValid(source)) break;
 
+            chunk = remaining;
+            if(chunk > (unsigned int)sourceOff + 2u) chunk = (unsigned int)sourceOff + 2u;
+            if(chunk > (unsigned int)dest + 2u)      chunk = (unsigned int)dest + 2u;
+            chunk &= 0xFFFEu;
+            if(!chunk) break;
+
+            srcStart = (unsigned int)sourceOff - chunk + 2u;
+            dstStart = (unsigned int)dest - chunk + 2u;
             src = Page[sourcePage];
+            if(sourcePage == 0 &&
+               WsRangesOverlap(srcStart, chunk, dstStart, chunk))
+            {
+                chunk = 2;
+                srcStart = sourceOff;
+                dstStart = dest;
+            }
+
             if(!src || src == MemDummy)
             {
-                IRAM[dest] = MemDummy[0];
-                IRAM[(WORD)(dest + 1)] = MemDummy[0];
+                memset(IRAM + dstStart, MemDummy[0], chunk);
+            }
+            else if(sourcePage == 0)
+            {
+                memcpy(IRAM + dstStart, IRAM + srcStart, chunk);
             }
             else
             {
-                src += sourceOff;
-                IRAM[dest] = src[0];
-                IRAM[(WORD)(dest + 1)] = src[1];
+                memcpy(IRAM + dstStart, src + srcStart, chunk);
             }
-            source = (DWORD)((source - 2) & 0x0FFFFE);
-            dest = (WORD)(dest - 2);
-            remaining -= 2;
+            source = (DWORD)((source - chunk) & 0x0FFFFE);
+            dest = (WORD)(dest - chunk);
+            remaining -= (WORD)chunk;
         }
     }
 
