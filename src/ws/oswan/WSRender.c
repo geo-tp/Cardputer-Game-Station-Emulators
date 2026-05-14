@@ -36,6 +36,12 @@ static inline unsigned int WsRenderElapsedUs(unsigned long start)
     DecodeTileRow((index), (data), (packedMode), (color16), (hrev))
 #endif
 
+#if WS_RENDER_PROFILE_ON
+#define WS_RENDER_DECODE_COUNTER(name) (&(name))
+#else
+#define WS_RENDER_DECODE_COUNTER(name) NULL
+#endif
+
 #define MAP_TILE 0x01FF
 #define MAP_PAL  0x1E00
 #define MAP_BANK 0x2000
@@ -567,7 +573,7 @@ WS_PPU_CODE void RefreshLine(int Line)
             const BYTE* rowIndex = DecodeTileRowCached(index, pbTData,
                                                        packedMode, color16,
                                                        TMap & MAP_HREV,
-                                                       &bgDecodeCalls);
+                                                       WS_RENDER_DECODE_COUNTER(bgDecodeCalls));
             RenderBgTile(&pSWrBuf, Palette[PalIndex], rowIndex, zeroTransparent);
         }
     }
@@ -683,7 +689,7 @@ WS_PPU_CODE void RefreshLine(int Line)
             const BYTE* rowIndex = DecodeTileRowCached(index, pbTData,
                                                        packedMode, color16,
                                                        TMap & MAP_HREV,
-                                                       &fgDecodeCalls);
+                                                       WS_RENDER_DECODE_COUNTER(fgDecodeCalls));
             if(fgWindowEnabled)
             {
                 RenderFgTileWindow(&pSWrBuf, &pW, &pZ, Palette[PalIndex], rowIndex,
@@ -818,7 +824,7 @@ WS_PPU_CODE void RefreshLine(int Line)
             const BYTE* rowIndex = DecodeTileRowCached(index, pbTData,
                                                        packedMode, color16,
                                                        TMap & SPR_HREV,
-                                                       &spriteDecodeCalls);
+                                                       WS_RENDER_DECODE_COUNTER(spriteDecodeCalls));
             const int zeroTransparent = color16 || (TMap & 0x0800);
 
             pW = WBuf + 8 + sprX + firstPixel;

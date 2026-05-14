@@ -18,6 +18,7 @@ static int16_t* s_buf0 = NULL;
 static int16_t* s_buf1 = NULL;
 static int16_t* s_buf[2] = { NULL, NULL };
 static uint8_t  s_flip   = 0;
+static int16_t  s_lastSample = 0;
 #ifdef BENCHMARK_LOGS
 static volatile uint32_t s_statBlocks = 0;
 static volatile uint32_t s_statUnderflows = 0;
@@ -77,11 +78,13 @@ static inline void build_block_from_apu(int16_t* dst) {
 
     int32_t m = ((int32_t)L + (int32_t)R) / 2;
     dst[i] = clamp16(m);
+    s_lastSample = dst[i];
   }
 
-  // Pad silence
+  // Pad with a short decaying hold instead of hard silence to soften underruns.
   for (int i = to_read; i < need; ++i) {
-    dst[i] = 0;
+    s_lastSample = (int16_t)((int32_t)s_lastSample * 15 / 16);
+    dst[i] = s_lastSample;
   }
 }
 
@@ -137,6 +140,7 @@ extern "C" void ws_sound_init(int sample_rate_hz) {
 
   M5Cardputer.Speaker.setVolume(80);
   s_flip = 0;
+  s_lastSample = 0;
 #ifdef BENCHMARK_LOGS
   s_statBlocks = 0;
   s_statUnderflows = 0;

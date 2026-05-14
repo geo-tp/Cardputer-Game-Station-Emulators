@@ -11,6 +11,12 @@
     #define WS_NO_SPLASH
 #include <esp_attr.h>
 
+#ifdef WS_APU_IRAM
+#define WS_APU_CODE IRAM_ATTR
+#else
+#define WS_APU_CODE
+#endif
+
 // -----------------------------------------------------------------------------
 // Config
 // -----------------------------------------------------------------------------
@@ -67,7 +73,7 @@ void apuAllocateBuffers(void) {
 // -----------------------------------------------------------------------------
 // Ring helpers 
 // -----------------------------------------------------------------------------
-int apuBufLen(void)
+int WS_APU_CODE apuBufLen(void)
 {
   int32_t read = rBuf;
   int32_t write = wBuf;
@@ -75,7 +81,7 @@ int apuBufLen(void)
   return SND_RNGSIZE + write - read;
 }
 
-int apuReadStereo(int16_t* left, int16_t* right)
+int WS_APU_CODE apuReadStereo(int16_t* left, int16_t* right)
 {
   int32_t read = rBuf;
   int32_t write = wBuf;
@@ -94,7 +100,7 @@ int apuReadStereo(int16_t* left, int16_t* right)
   return 1;
 }
 
-static inline void apuWriteStereo(int16_t left, int16_t right)
+static inline void WS_APU_CODE apuWriteStereo(int16_t left, int16_t right)
 {
   int32_t write = wBuf;
   int32_t next = write + 1;
@@ -209,7 +215,7 @@ unsigned int apuMrand(unsigned int Degree)
 // -----------------------------------------------------------------------------
 // Tables PData
 // -----------------------------------------------------------------------------
-void apuSetPData(int addr, unsigned char val)
+void WS_APU_CODE apuSetPData(int addr, unsigned char val)
 {
   int i = (addr & 0x30) >> 4;   // channel
   int j = (addr & 0x0F) << 1;   // two packed nibbles
@@ -252,7 +258,7 @@ unsigned char apuVoice(void)
   return ((VoiceOn && Sound[4]) ? IO[0x89] : 0x80);
 }
 
-unsigned char ws_apuhVoice(int count, BYTE *hvoice)
+unsigned char WS_APU_CODE ws_apuhVoice(int count, BYTE *hvoice)
 {
   static int index = 0;
 
@@ -274,7 +280,7 @@ unsigned char ws_apuhVoice(int count, BYTE *hvoice)
   return *hvoice;
 }
 
-unsigned char ws_apuVoice(int count)
+unsigned char WS_APU_CODE ws_apuVoice(int count)
 {
   if ((SDMACTL & 0x88) == 0x80) { // DMA start
     int i =                   (IO[0x4f] << 8) | IO[0x4e]; // size
@@ -305,7 +311,7 @@ unsigned char ws_apuVoice(int count)
 // -----------------------------------------------------------------------------
 // Sweep / Noise stubs
 // -----------------------------------------------------------------------------
-void apuSweep(void)
+void WS_APU_CODE apuSweep(void)
 {
   if ((Swp.step) && Swp.on) { // sweep on
     if (Swp.cnt < 0) {
@@ -326,7 +332,7 @@ void apuNoiseControl(unsigned char val)
   }
 }
 
-static unsigned int apuNoiseBit(void)
+static unsigned int WS_APU_CODE apuNoiseBit(void)
 {
   static const unsigned char tapBits[8] = {14, 10, 13, 4, 8, 6, 9, 11};
   const unsigned int tap = (s_noiseLfsr >> tapBits[Noise.pattern & 0x07]) & 1;
@@ -337,7 +343,7 @@ static unsigned int apuNoiseBit(void)
   return newBit;
 }
 
-WORD apuShiftReg(void)
+WORD WS_APU_CODE apuShiftReg(void)
 {
   return s_noiseLfsr & 0x7FFF;
 }
@@ -345,14 +351,14 @@ WORD apuShiftReg(void)
 // -----------------------------------------------------------------------------
 // Mix & push into ring 
 // -----------------------------------------------------------------------------
-static inline int16_t clamp16(int32_t v)
+static inline int16_t WS_APU_CODE clamp16(int32_t v)
 {
   if (v >  32767) return  32767;
   if (v < -32768) return -32768;
   return (int16_t)v;
 }
 
-void WsWaveSet(BYTE voice, BYTE hvoice)
+void WS_APU_CODE WsWaveSet(BYTE voice, BYTE hvoice)
 {
   static int point[4]    = {0,0,0,0};
   static int preindex[4] = {0,0,0,0};
@@ -397,7 +403,7 @@ void WsWaveSet(BYTE voice, BYTE hvoice)
   }
 }
 
-void apuWaveSet(void)
+void WS_APU_CODE apuWaveSet(void)
 {
   BYTE voice, hvoice;
   apuSweep();
