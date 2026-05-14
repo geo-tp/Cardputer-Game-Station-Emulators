@@ -6,6 +6,7 @@ $Rev: 71 $
 #ifndef WSAPU_H_
 #define WSWAPU_H_
 
+#include <stdio.h>
 #include "WSHard.h"
 
 #define SND_RNGSIZE 1024
@@ -52,5 +53,8 @@ void apuSweep(void);
 WORD apuShiftReg(void);
 void apuWaveSet(void);
 void apuStartupSound(void);
+void apuClearRing(void);
+int WsApuSaveState(FILE* fp);
+int WsApuLoadState(FILE* fp);
 
 #endif

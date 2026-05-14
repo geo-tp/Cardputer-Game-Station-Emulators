@@ -57,6 +57,7 @@ static volatile uint32_t s_statPlayFails = 0;
 // Task
 static TaskHandle_t s_taskAudio  = nullptr;
 static volatile bool s_runAudio  = false;
+static volatile bool s_pauseAudio = false;
 static TickType_t    s_periodTicks = 0;
 
 // -----------------------------------------------------------------------------
@@ -236,7 +237,9 @@ static void ws_audio_task(void* arg) {
   TickType_t last = xTaskGetTickCount();
 
   while (s_runAudio) {
-    ws_sound_frame();
+    if (!s_pauseAudio) {
+      ws_sound_frame();
+    }
     vTaskDelayUntil(&last, s_periodTicks);
   }
   vTaskDelete(nullptr);
@@ -260,6 +263,14 @@ extern "C" void ws_sound_stop_task(void) {
   if (!s_taskAudio) return;
   s_runAudio = false;
   s_taskAudio = nullptr;
+}
+
+extern "C" void ws_sound_pause_task(int pause) {
+  s_pauseAudio = pause != 0;
+  if (s_pauseAudio) {
+    M5Cardputer.Speaker.stop(kChannel);
+    vTaskDelay(pdMS_TO_TICKS(2));
+  }
 }
 
 #ifdef BENCHMARK_LOGS

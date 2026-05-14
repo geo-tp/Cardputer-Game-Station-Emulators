@@ -6,6 +6,7 @@ $Rev: 71 $
 #ifndef WSRENDER_H_
 #define WSRENDER_H_
 
+#include <stdio.h>
 #include "WSHard.h"
 
 #define LINE_SIZE (256)
@@ -35,5 +36,7 @@ void WsPrecomputeSpriteTable(int count);
 void RefreshLine(int Line);
 void RenderSegment(void);
 void RenderSleep(void);
+int WsRenderSaveState(FILE* fp);
+int WsRenderLoadState(FILE* fp);
 
 #endif

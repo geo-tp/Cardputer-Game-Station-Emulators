@@ -44,6 +44,11 @@ static int   StartupFlag;
 static int   s_outputAccum = 0;
 static WORD  s_noiseLfsr = 0;
 static int   s_noiseEnabled = 0;
+static int   s_voiceIndex = 0;
+static int   s_voiceBankOffset = 0;
+static int   s_hvoiceIndex = 0;
+static int   s_wavePoint[4] = {0,0,0,0};
+static int   s_wavePreindex[4] = {0,0,0,0};
 
 // -----------------------------------------------------------------------------
 // Allocation buffers sound
@@ -146,6 +151,11 @@ int apuInit(void)
   s_outputAccum = 0;
   s_noiseLfsr = 0;
   s_noiseEnabled = 0;
+  s_voiceIndex = 0;
+  s_voiceBankOffset = 0;
+  s_hvoiceIndex = 0;
+  memset(s_wavePoint, 0, sizeof(s_wavePoint));
+  memset(s_wavePreindex, 0, sizeof(s_wavePreindex));
   apuWaveCreate();
   return 0;
 }
@@ -229,31 +239,30 @@ void WS_APU_CODE apuSetPData(int addr, unsigned char val)
 // -----------------------------------------------------------------------------
 unsigned char apuVoice(void)
 {
-  static int index = 0, b = 0;
   unsigned char v;
 
   if ((SDMACTL & 0x98) == 0x98) {  // Hyper voice
-    BYTE* page = Page[(SDMASB + b) & 0x0F];
-    v = (!page || page == MemDummy) ? MemDummy[0] : page[SDMASA + index];
-    index++;
-    if ((SDMASA + index) == 0) b++;
+    BYTE* page = Page[(SDMASB + s_voiceBankOffset) & 0x0F];
+    v = (!page || page == MemDummy) ? MemDummy[0] : page[SDMASA + s_voiceIndex];
+    s_voiceIndex++;
+    if ((SDMASA + s_voiceIndex) == 0) s_voiceBankOffset++;
     v = (v < 0x80) ? (v + 0x80) : (v - 0x80);
-    if (SDMACNT <= index) {
-      index = 0;
-      b     = 0;
+    if (SDMACNT <= s_voiceIndex) {
+      s_voiceIndex     = 0;
+      s_voiceBankOffset = 0;
     }
     return v;
   }
   else if ((SDMACTL & 0x88) == 0x80) { // DMA start
-    BYTE* page = Page[(SDMASB + b) & 0x0F];
-    IO[0x89] = (!page || page == MemDummy) ? MemDummy[0] : page[SDMASA + index];
-    index++;
-    if ((SDMASA + index) == 0) b++;
-    if (SDMACNT <= index) {
+    BYTE* page = Page[(SDMASB + s_voiceBankOffset) & 0x0F];
+    IO[0x89] = (!page || page == MemDummy) ? MemDummy[0] : page[SDMASA + s_voiceIndex];
+    s_voiceIndex++;
+    if ((SDMASA + s_voiceIndex) == 0) s_voiceBankOffset++;
+    if (SDMACNT <= s_voiceIndex) {
       SDMACTL &= 0x7F; // DMA end
       SDMACNT  = 0;
-      index    = 0;
-      b        = 0;
+      s_voiceIndex = 0;
+      s_voiceBankOffset = 0;
     }
   }
   return ((VoiceOn && Sound[4]) ? IO[0x89] : 0x80);
@@ -261,22 +270,20 @@ unsigned char apuVoice(void)
 
 unsigned char WS_APU_CODE ws_apuhVoice(int count, BYTE *hvoice)
 {
-  static int index = 0;
-
   if ((IO[0x52] & 0x98) == 0x98) { // Hyper Voice On?
     int address = (IO[0x4c] << 16) | (IO[0x4b] << 8) | IO[0x4a];
     int size    =                   (IO[0x4f] << 8) | IO[0x4e];
 
-    int value1  = cpu_readmem20(address + index);
+    int value1  = cpu_readmem20(address + s_hvoiceIndex);
     if (value1 < 0x80) *hvoice = (BYTE)(value1 + 0x80);
     else               *hvoice = (BYTE)(value1 - 0x80);
 
     if (count == 0) {
-      if (size <= (++index)) index = 0;
+      if (size <= (++s_hvoiceIndex)) s_hvoiceIndex = 0;
     }
   } else {
     *hvoice = 0x80;
-    index   = 0;
+    s_hvoiceIndex = 0;
   }
   return *hvoice;
 }
@@ -361,8 +368,6 @@ static inline int16_t WS_APU_CODE clamp16(int32_t v)
 
 void WS_APU_CODE WsWaveSet(BYTE voice, BYTE hvoice)
 {
-  static int point[4]    = {0,0,0,0};
-  static int preindex[4] = {0,0,0,0};
   const int voiceMixOn = VoiceOn && Sound[4];
   int32_t mixL = 0;
   int32_t mixR = 0;
@@ -379,11 +384,11 @@ void WS_APU_CODE WsWaveSet(BYTE voice, BYTE hvoice)
     } else if (Sound[channel] == 0) {
       continue;
     } else {
-      int index = WS_APU_WAVE_STEP * point[channel] / (2048 - Ch[channel].freq);
-      if ((index %= 32) == 0 && preindex[channel]) point[channel] = 0;
+      int index = WS_APU_WAVE_STEP * s_wavePoint[channel] / (2048 - Ch[channel].freq);
+      if ((index %= 32) == 0 && s_wavePreindex[channel]) s_wavePoint[channel] = 0;
       value = (int16_t)PData[channel][index] - 8;   // <- **PSG actif**
-      preindex[channel] = index;
-      point[channel]++;
+      s_wavePreindex[channel] = index;
+      s_wavePoint[channel]++;
     }
 
     mixL += value * Ch[channel].volL;
@@ -419,4 +424,103 @@ void WS_APU_CODE apuWaveSet(void)
 void apuStartupSound(void)
 {
   StartupFlag = 1;
+}
+
+void apuClearRing(void)
+{
+  WS_RING_BARRIER();
+  rBuf = 0;
+  wBuf = 0;
+  WS_RING_BARRIER();
+}
+
+typedef struct WsApuState {
+  unsigned long waveMap;
+  SOUND ch[4];
+  int voiceOn;
+  SWEEP swp;
+  NOISE noise;
+  int sound[7];
+  int startupFlag;
+  int outputAccum;
+  WORD noiseLfsr;
+  int noiseEnabled;
+  int voiceIndex;
+  int voiceBankOffset;
+  int hvoiceIndex;
+  int wavePoint[4];
+  int wavePreindex[4];
+  unsigned char pdata[4][32];
+} WsApuState;
+
+static int apu_write_all(FILE* fp, const void* data, size_t bytes)
+{
+  return fp && fwrite(data, 1, bytes, fp) == bytes;
+}
+
+static int apu_read_all(FILE* fp, void* data, size_t bytes)
+{
+  return fp && fread(data, 1, bytes, fp) == bytes;
+}
+
+int WsApuSaveState(FILE* fp)
+{
+  WsApuState st;
+  memset(&st, 0, sizeof(st));
+  st.waveMap = WaveMap;
+  memcpy(st.ch, Ch, sizeof(st.ch));
+  st.voiceOn = VoiceOn;
+  st.swp = Swp;
+  st.noise = Noise;
+  memcpy(st.sound, Sound, sizeof(st.sound));
+  st.startupFlag = StartupFlag;
+  st.outputAccum = s_outputAccum;
+  st.noiseLfsr = s_noiseLfsr;
+  st.noiseEnabled = s_noiseEnabled;
+  st.voiceIndex = s_voiceIndex;
+  st.voiceBankOffset = s_voiceBankOffset;
+  st.hvoiceIndex = s_hvoiceIndex;
+  memcpy(st.wavePoint, s_wavePoint, sizeof(st.wavePoint));
+  memcpy(st.wavePreindex, s_wavePreindex, sizeof(st.wavePreindex));
+  for(int i = 0; i < 4; ++i)
+  {
+    if(PData[i])
+    {
+      memcpy(st.pdata[i], PData[i], 32);
+    }
+  }
+  return apu_write_all(fp, &st, sizeof(st));
+}
+
+int WsApuLoadState(FILE* fp)
+{
+  WsApuState st;
+  if(!apu_read_all(fp, &st, sizeof(st)))
+  {
+    return 0;
+  }
+  WaveMap = st.waveMap;
+  memcpy(Ch, st.ch, sizeof(Ch));
+  VoiceOn = st.voiceOn;
+  Swp = st.swp;
+  Noise = st.noise;
+  memcpy(Sound, st.sound, sizeof(Sound));
+  StartupFlag = st.startupFlag;
+  s_outputAccum = st.outputAccum;
+  s_noiseLfsr = st.noiseLfsr;
+  s_noiseEnabled = st.noiseEnabled;
+  s_voiceIndex = st.voiceIndex;
+  s_voiceBankOffset = st.voiceBankOffset;
+  s_hvoiceIndex = st.hvoiceIndex;
+  memcpy(s_wavePoint, st.wavePoint, sizeof(s_wavePoint));
+  memcpy(s_wavePreindex, st.wavePreindex, sizeof(s_wavePreindex));
+  for(int i = 0; i < 4; ++i)
+  {
+    if(PData[i])
+    {
+      memcpy(PData[i], st.pdata[i], 32);
+    }
+  }
+  apuClearRing();
+  return 1;
 }

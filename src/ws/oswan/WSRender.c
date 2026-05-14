@@ -417,6 +417,73 @@ void SetPalette(int addr)
     Palette[(addr & 0x1E0) >> 5][(addr & 0x1E) >> 1] = r | g | b;
 }
 
+typedef struct WsRenderState {
+    WORD palette[16][16];
+    WORD monoColor[8];
+    BYTE sprTMap[512];
+    int sprMetaCount;
+    int layer[3];
+    int segment[11];
+} WsRenderState;
+
+static int render_write_all(FILE* fp, const void* data, size_t bytes)
+{
+    return fp && fwrite(data, 1, bytes, fp) == bytes;
+}
+
+static int render_read_all(FILE* fp, void* data, size_t bytes)
+{
+    return fp && fread(data, 1, bytes, fp) == bytes;
+}
+
+int WsRenderSaveState(FILE* fp)
+{
+    WsRenderState st;
+    memset(&st, 0, sizeof(st));
+    if(Palette)
+    {
+        memcpy(st.palette, Palette, sizeof(st.palette));
+    }
+    memcpy(st.monoColor, MonoColor, sizeof(st.monoColor));
+    if(SprTMap)
+    {
+        memcpy(st.sprTMap, SprTMap, sizeof(st.sprTMap));
+    }
+    st.sprMetaCount = SprMetaCount;
+    memcpy(st.layer, Layer, sizeof(st.layer));
+    memcpy(st.segment, Segment, sizeof(st.segment));
+    return render_write_all(fp, &st, sizeof(st));
+}
+
+int WsRenderLoadState(FILE* fp)
+{
+    WsRenderState st;
+    if(!render_read_all(fp, &st, sizeof(st)))
+    {
+        return 0;
+    }
+    if(Palette)
+    {
+        memcpy(Palette, st.palette, sizeof(st.palette));
+    }
+    memcpy(MonoColor, st.monoColor, sizeof(MonoColor));
+    if(SprTMap)
+    {
+        memcpy(SprTMap, st.sprTMap, sizeof(st.sprTMap));
+    }
+    memcpy(Layer, st.layer, sizeof(Layer));
+    memcpy(Segment, st.segment, sizeof(Segment));
+    WsPrecomputeSpriteTable(st.sprMetaCount);
+
+#if defined(WS_TILE_ROW_CACHE)
+    if(TileRowCache)
+    {
+        memset(TileRowCache, 0, WS_TILE_ROW_CACHE_ENTRIES * sizeof(WsTileRowCacheEntry));
+    }
+#endif
+    return 1;
+}
+
 WS_PPU_CODE void RefreshLine(int Line)
 {
     WORD *pSBuf;            // �f�[�^�������݃o�b�t�@

@@ -13,6 +13,7 @@ extern "C" {
 #include "ws_display.h"
 #include "ws_sound.h"
 #include "ws_save.h"
+#include "ws_state.h"
 #include "share/emu_log_cpp.h"
 
 #ifndef WS_AUDIO_PERIOD_MS
@@ -81,6 +82,7 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
   // SRAM save/load
   ws_save_init(rom_name);
   ws_save_load();
+  ws_state_init(rom_name);
   ws_sound_start_task(WS_AUDIO_PERIOD_MS, 0);
 
   // Timing
@@ -109,6 +111,7 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
     benchCoreTotalUs += coreUs;
     if (coreUs > benchCoreMaxUs) benchCoreMaxUs = coreUs;
 #endif
+    ws_state_tick();
     ws_save_tick();
     frameCount++;
 

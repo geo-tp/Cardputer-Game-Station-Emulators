@@ -6,6 +6,8 @@ $Rev: 71 $
 #ifndef WS_H_
 #define WS_H_
 
+#include <stdio.h>
+#include <stdint.h>
 #include "WSHard.h"
 
 struct EEPROM
@@ -99,6 +101,10 @@ unsigned int WsSramBackingDirtyPages(void);
 void WsSramBackingClearDirtyPages(unsigned int mask);
 void WsRomPatch(BYTE *buf);
 int WsRun(void);
+uint32_t WsStatePayloadVersion(void);
+uint32_t WsStateSramSize(void);
+int WsSaveStatePayload(FILE* fp);
+int WsLoadStatePayload(FILE* fp, uint32_t sramSize);
 #ifdef BENCHMARK_LOGS
 void WsGetAndResetStats(WsCoreStats* out);
 void WsBenchSpriteLine(unsigned int candidates, unsigned int visible,

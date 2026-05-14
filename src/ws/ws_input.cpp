@@ -4,6 +4,7 @@
 #include "ws_input.h"
 #include "share/input.h"
 #include "ws_save.h"
+#include "ws_state.h"
 
 extern bool ws_fullscreen;
 extern int  ws_zoomPercent;
@@ -15,6 +16,8 @@ extern "C" int ws_input_poll(int mode)
   Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
   uint16_t state = 0;
   static bool quitFlushDone = false;
+  static bool stateSaveLatch = false;
+  static bool stateLoadLatch = false;
 
   if (M5Cardputer.BtnA.pressedFor(1000) && !quitFlushDone) {
     ws_save_force_flush();
@@ -22,6 +25,25 @@ extern "C" int ws_input_poll(int mode)
   }
 
   share::checkCommonInput(status);
+
+  const bool saveStateCombo = status.fn && M5Cardputer.Keyboard.isKeyPressed('s');
+  const bool loadStateCombo = status.fn && M5Cardputer.Keyboard.isKeyPressed('l');
+  if (saveStateCombo && !stateSaveLatch) {
+    ws_state_request_save();
+    stateSaveLatch = true;
+  } else if (!saveStateCombo) {
+    stateSaveLatch = false;
+  }
+  if (loadStateCombo && !stateLoadLatch) {
+    ws_state_request_load();
+    stateLoadLatch = true;
+  } else if (!loadStateCombo) {
+    stateLoadLatch = false;
+  }
+  if (saveStateCombo || loadStateCombo) {
+    lastPadState = state;
+    return (int)state;
+  }
 
   // I2C PAD (M5Stack JoyV2)
   if (share::hasI2cPad()) {

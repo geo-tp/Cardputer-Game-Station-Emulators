@@ -58,6 +58,9 @@ static int RAMEnable;
 int FrameSkip = 1;
 static int GDmaExtraCycles;
 static int SkipCnt = 0;
+static int WsRunPeriod = IPeriod;
+static int InterruptLCount = 0;
+static int InterruptJoyz = 0x0000;
 static FILE* SramBackingFile = NULL;
 int WsSramBackingFastActive = 0;
 static int SramBackingBanks = 0;
@@ -83,6 +86,7 @@ static int TblSkip[5][5] = {
     {0,0,0,0,1},
 };
 static void WsRefreshSpriteTable(void);
+static void WsApplyLoadedStatePointers(void);
 #ifdef BENCHMARK_LOGS
 static WsCoreStats s_coreStats;
 #define WS_BENCH_INC(field)       (s_coreStats.field++)
@@ -263,6 +267,11 @@ void WsSramBackingClearDirtyPages(unsigned int mask)
     {
         SramBackingDirty = 0;
     }
+}
+
+static int WsSramBackingCurrentBank(void)
+{
+    return SramCurrentBank;
 }
 
 void WsSramBackingSelect(int bank)
@@ -1368,6 +1377,9 @@ void WsReset (void)
     apuWaveClear();
     GDmaExtraCycles = 0;
     ButtonState = 0x0000;
+    WsRunPeriod = IPeriod;
+    InterruptLCount = 0;
+    InterruptJoyz = 0x0000;
 	for (i = 0; i < 11; i++)
 	{
 		Segment[i] = 0;
@@ -1400,14 +1412,13 @@ void WsRomPatch(BYTE *buf)
 
 int Interrupt(void)
 {
-    static int LCount=0, Joyz=0x0000;
     int i, j;
 
-    if(++LCount>=8) // 8���1Hblank����
+    if(++InterruptLCount>=8) // 8���1Hblank����
     {
-        LCount=0;
+        InterruptLCount=0;
     }
-    switch(LCount)
+    switch(InterruptLCount)
     {
         case 0:
             if(RSTRL == 144)
@@ -1415,7 +1426,7 @@ int Interrupt(void)
                 DWORD VCounter;
 
                 ButtonState = WsInputGetState(HVMode);
-                if((ButtonState ^ Joyz) & Joyz)
+                if((ButtonState ^ InterruptJoyz) & InterruptJoyz)
                 {
                     if(IRQENA & KEY_IFLAG)
                     {
@@ -1423,7 +1434,7 @@ int Interrupt(void)
                         WS_BENCH_INC(keyIrqs);
                     }
                 }
-                Joyz = ButtonState;
+                InterruptJoyz = ButtonState;
                 // Vblank�J�E���g�A�b�v
                 VCounter = VCNTH << 16 | VCNTL;
                 VCounter++;
@@ -1543,18 +1554,17 @@ int Interrupt(void)
 
 int WsRun(void)
 {
-    static int period = IPeriod;
     int i, cycle, iack, inum;
 
     for(i = 0; i < 159 * 8; i++) // 1/75s
     {
-        cycle = nec_execute(period);
+        cycle = nec_execute(WsRunPeriod);
         if(GDmaExtraCycles)
         {
             cycle += GDmaExtraCycles;
             GDmaExtraCycles = 0;
         }
-        period += IPeriod - cycle;
+        WsRunPeriod += IPeriod - cycle;
         if(Interrupt())
         {
             iack = IRQACK;
@@ -1572,6 +1582,328 @@ int WsRun(void)
     WS_BENCH_INC(frames);
     WS_BENCH_ADD(cpuSteps, 159 * 8);
     return 0;
+}
+
+typedef struct WsCoreStatePayload {
+    int run;
+    int buttonState;
+    int hvMode;
+    WORD hTimer;
+    WORD vTimer;
+    int rtcCount;
+    int ramEnable;
+    int frameSkip;
+    int gDmaExtraCycles;
+    int skipCnt;
+    int wsRunPeriod;
+    int interruptLCount;
+    int interruptJoyz;
+    int sramCurrentBank;
+    int sramBackingFastActive;
+    int sIEepWe;
+    int sCEepWe;
+} WsCoreStatePayload;
+
+static int WsStateWriteAll(FILE* fp, const void* data, size_t bytes)
+{
+    return fp && fwrite(data, 1, bytes, fp) == bytes;
+}
+
+static int WsStateReadAll(FILE* fp, void* data, size_t bytes)
+{
+    return fp && fread(data, 1, bytes, fp) == bytes;
+}
+
+static uint32_t WsSramBytesForBank(int bank)
+{
+    if(RAMBanks <= 0 || RAMSize <= 0 || bank < 0 || bank >= RAMBanks)
+    {
+        return 0;
+    }
+    if(RAMSize < 0x10000)
+    {
+        return (bank == 0) ? (uint32_t)RAMSize : 0;
+    }
+    const uint32_t done = (uint32_t)bank * 0x10000u;
+    if(done >= (uint32_t)RAMSize)
+    {
+        return 0;
+    }
+    uint32_t remain = (uint32_t)RAMSize - done;
+    return remain > 0x10000u ? 0x10000u : remain;
+}
+
+uint32_t WsStatePayloadVersion(void)
+{
+    return 1;
+}
+
+uint32_t WsStateSramSize(void)
+{
+    return (RAMBanks > 0 && RAMSize > 0) ? (uint32_t)RAMSize : 0;
+}
+
+static int WsSaveSramState(FILE* fp)
+{
+    const uint32_t sramSize = WsStateSramSize();
+    if(!sramSize)
+    {
+        return 1;
+    }
+
+    BYTE scratch[512];
+    const int savedBank = WsSramBackingCurrentBank();
+    for(int bank = 0; bank < RAMBanks; ++bank)
+    {
+        uint32_t remaining = WsSramBytesForBank(bank);
+        uint32_t offset = 0;
+        if(!remaining)
+        {
+            continue;
+        }
+
+        if(WsSramBackingFastActive)
+        {
+            WsSramBackingSelect(bank);
+        }
+
+        while(remaining)
+        {
+            uint32_t n = remaining > sizeof(scratch) ? sizeof(scratch) : remaining;
+            if(WsSramBackingFastActive)
+            {
+                for(uint32_t i = 0; i < n; ++i)
+                {
+                    scratch[i] = WsSramBackingRead((int)(offset + i));
+                }
+            }
+            else if(RAMMap && RAMMap[bank] && RAMMap[bank] != MemDummy)
+            {
+                memcpy(scratch, RAMMap[bank] + offset, n);
+            }
+            else
+            {
+                memset(scratch, 0x00, n);
+            }
+            if(!WsStateWriteAll(fp, scratch, n))
+            {
+                if(WsSramBackingFastActive)
+                {
+                    WsSramBackingSelect(savedBank);
+                }
+                return 0;
+            }
+            offset += n;
+            remaining -= n;
+        }
+    }
+
+    if(WsSramBackingFastActive)
+    {
+        WsSramBackingSelect(savedBank);
+    }
+    return 1;
+}
+
+static int WsLoadSramState(FILE* fp, uint32_t fileSramSize)
+{
+    const uint32_t expected = WsStateSramSize();
+    BYTE scratch[512];
+    const int savedBank = WsSramBackingCurrentBank();
+
+    uint32_t consumed = 0;
+    for(int bank = 0; bank < RAMBanks && consumed < fileSramSize; ++bank)
+    {
+        uint32_t remaining = WsSramBytesForBank(bank);
+        uint32_t offset = 0;
+        if(!remaining)
+        {
+            continue;
+        }
+        if(consumed + remaining > fileSramSize)
+        {
+            remaining = fileSramSize - consumed;
+        }
+
+        if(WsSramBackingFastActive)
+        {
+            WsSramBackingSelect(bank);
+        }
+
+        while(remaining)
+        {
+            uint32_t n = remaining > sizeof(scratch) ? sizeof(scratch) : remaining;
+            if(!WsStateReadAll(fp, scratch, n))
+            {
+                if(WsSramBackingFastActive)
+                {
+                    WsSramBackingSelect(savedBank);
+                }
+                return 0;
+            }
+            if(WsSramBackingFastActive)
+            {
+                for(uint32_t i = 0; i < n; ++i)
+                {
+                    WsSramBackingWrite((int)(offset + i), scratch[i]);
+                }
+            }
+            else if(RAMMap && RAMMap[bank] && RAMMap[bank] != MemDummy)
+            {
+                memcpy(RAMMap[bank] + offset, scratch, n);
+            }
+            offset += n;
+            consumed += n;
+            remaining -= n;
+        }
+    }
+
+    while(consumed < fileSramSize)
+    {
+        uint32_t n = (fileSramSize - consumed) > sizeof(scratch) ? sizeof(scratch) : (fileSramSize - consumed);
+        if(!WsStateReadAll(fp, scratch, n))
+        {
+            if(WsSramBackingFastActive)
+            {
+                WsSramBackingSelect(savedBank);
+            }
+            return 0;
+        }
+        consumed += n;
+    }
+
+    if(WsSramBackingFastActive)
+    {
+        WsSramBackingSelect(savedBank);
+    }
+    return expected == fileSramSize;
+}
+
+static void WsApplyLoadedStatePointers(void)
+{
+    Page[0x0] = IRAM;
+    sIEep.data = IEep;
+    if(CartKind & CK_EEP)
+    {
+        Page[0x1] = MemDummy;
+        sCEep.data = (WORD*)(RAMMap ? RAMMap[0x00] : NULL);
+    }
+    else
+    {
+        sCEep.data = NULL;
+        if(RAMEnable)
+        {
+            if(WsSramBackingFastActive)
+            {
+                WsSramBackingSelect(SramCurrentBank);
+                Page[0x1] = RAMMap ? RAMMap[0] : MemDummy;
+            }
+            else if(RAMBanks > 1 && SramCurrentBank >= 0 && SramCurrentBank < RAMBanks &&
+                    RAMMap && RAMMap[SramCurrentBank] && RAMMap[SramCurrentBank] != MemDummy)
+            {
+                Page[0x1] = RAMMap[SramCurrentBank];
+            }
+            else if(RAMMap && RAMMap[0] && RAMMap[0] != MemDummy)
+            {
+                Page[0x1] = RAMMap[0];
+            }
+            else
+            {
+                Page[0x1] = MemDummy;
+            }
+        }
+        else
+        {
+            Page[0x1] = MemDummy;
+        }
+    }
+
+    Scr1TMap = IRAM + ((SCRMAP & 0x0F) << 11);
+    Scr2TMap = IRAM + ((SCRMAP & 0xF0) << 7);
+
+    const int j = (IO[0xC0] << 4) & 0xF0;
+    for(int page = 0x4; page <= 0xF; ++page)
+    {
+        Page[page] = ROMMap ? ROMMap[page | j] : MemDummy;
+    }
+    Page[0x2] = ROMMap ? ROMMap[IO[0xC2]] : MemDummy;
+    Page[0x3] = ROMMap ? ROMMap[IO[0xC3]] : MemDummy;
+}
+
+int WsSaveStatePayload(FILE* fp)
+{
+    WsCoreStatePayload core;
+    nec_context cpu;
+
+    memset(&core, 0, sizeof(core));
+    core.run = Run;
+    core.buttonState = ButtonState;
+    core.hvMode = HVMode;
+    core.hTimer = HTimer;
+    core.vTimer = VTimer;
+    core.rtcCount = RtcCount;
+    core.ramEnable = RAMEnable;
+    core.frameSkip = FrameSkip;
+    core.gDmaExtraCycles = GDmaExtraCycles;
+    core.skipCnt = SkipCnt;
+    core.wsRunPeriod = WsRunPeriod;
+    core.interruptLCount = InterruptLCount;
+    core.interruptJoyz = InterruptJoyz;
+    core.sramCurrentBank = SramCurrentBank;
+    core.sramBackingFastActive = WsSramBackingFastActive;
+    core.sIEepWe = sIEep.we;
+    core.sCEepWe = sCEep.we;
+    nec_get_context(&cpu);
+
+    WsSramBackingFlush();
+
+    return WsStateWriteAll(fp, &core, sizeof(core)) &&
+           WsStateWriteAll(fp, &cpu, sizeof(cpu)) &&
+           WsStateWriteAll(fp, IO, 0x100u) &&
+           WsStateWriteAll(fp, IRAM, 0x10000u) &&
+           WsStateWriteAll(fp, IEep, sizeof(IEep)) &&
+           WsApuSaveState(fp) &&
+           WsRenderSaveState(fp) &&
+           WsSaveSramState(fp);
+}
+
+int WsLoadStatePayload(FILE* fp, uint32_t sramSize)
+{
+    WsCoreStatePayload core;
+    nec_context cpu;
+
+    if(!WsStateReadAll(fp, &core, sizeof(core)) ||
+       !WsStateReadAll(fp, &cpu, sizeof(cpu)) ||
+       !WsStateReadAll(fp, IO, 0x100u) ||
+       !WsStateReadAll(fp, IRAM, 0x10000u) ||
+       !WsStateReadAll(fp, IEep, sizeof(IEep)) ||
+       !WsApuLoadState(fp) ||
+       !WsRenderLoadState(fp) ||
+       !WsLoadSramState(fp, sramSize))
+    {
+        return 0;
+    }
+
+    Run = core.run;
+    ButtonState = core.buttonState;
+    HVMode = core.hvMode;
+    HTimer = core.hTimer;
+    VTimer = core.vTimer;
+    RtcCount = core.rtcCount;
+    RAMEnable = core.ramEnable;
+    FrameSkip = core.frameSkip;
+    GDmaExtraCycles = core.gDmaExtraCycles;
+    SkipCnt = core.skipCnt;
+    WsRunPeriod = core.wsRunPeriod;
+    InterruptLCount = core.interruptLCount;
+    InterruptJoyz = core.interruptJoyz;
+    SramCurrentBank = core.sramCurrentBank;
+    sIEep.we = core.sIEepWe;
+    sCEep.we = core.sCEepWe;
+
+    WsApplyLoadedStatePointers();
+    nec_set_context(&cpu);
+    return 1;
 }
 
 #ifdef BENCHMARK_LOGS

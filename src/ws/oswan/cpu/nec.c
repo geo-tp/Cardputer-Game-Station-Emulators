@@ -1977,6 +1977,60 @@ unsigned nec_get_reg(int regnum)
     return 0;
 }
 
+void nec_get_context(nec_context* dst)
+{
+    if(!dst)
+    {
+        return;
+    }
+
+    for(int i = 0; i < 8; ++i)
+    {
+        dst->regs[i] = I.regs.w[i];
+    }
+    for(int i = 0; i < 4; ++i)
+    {
+        dst->sregs[i] = I.sregs[i];
+    }
+    dst->ip = I.ip;
+    dst->flags = (UINT16)(CompressFlags() | (I.MF ? 0x8000 : 0));
+    dst->int_vector = I.int_vector;
+    dst->pending_irq = I.pending_irq;
+    dst->nmi_state = I.nmi_state;
+    dst->irq_state = I.irq_state;
+    dst->no_interrupt = no_interrupt;
+    dst->seg_prefix = seg_prefix;
+    dst->prefix_base = prefix_base;
+    dst->icount = nec_ICount;
+}
+
+void nec_set_context(const nec_context* src)
+{
+    if(!src)
+    {
+        return;
+    }
+
+    for(int i = 0; i < 8; ++i)
+    {
+        I.regs.w[i] = src->regs[i];
+    }
+    I.ip = src->ip;
+    ExpandFlags(src->flags);
+    I.int_vector = src->int_vector;
+    I.pending_irq = src->pending_irq;
+    I.nmi_state = src->nmi_state;
+    I.irq_state = src->irq_state;
+    SET_SEG(ES, src->sregs[ES]);
+    SET_CS(src->sregs[CS]);
+    SET_SEG(SS, src->sregs[SS]);
+    SET_SEG(DS, src->sregs[DS]);
+    no_interrupt = src->no_interrupt;
+    seg_prefix = (char)src->seg_prefix;
+    prefix_base = src->prefix_base;
+    nec_ICount = src->icount;
+}
+
 void nec_set_irq_line(int irqline, int state);
 
 void nec_set_reg(int regnum, unsigned val)
@@ -1998,6 +2052,9 @@ void nec_set_reg(int regnum, unsigned val)
         case NEC_SS: SET_SEG(SS,val); break;
         case NEC_DS: SET_SEG(DS,val); break;
         case NEC_VECTOR: I.int_vector = val; break;
+        case NEC_PENDING: I.pending_irq = val; break;
+        case NEC_NMI_STATE: I.nmi_state = val; break;
+        case NEC_IRQ_STATE: I.irq_state = val; break;
     }
 }
 
