@@ -821,11 +821,19 @@ WS_PPU_CODE void RefreshLine(int Line)
                 }
             }
 
+            const int zeroTransparent = color16 || (TMap & 0x0800);
+            if(zeroTransparent && IsZeroTileRow(pbTData, color16))
+            {
+#ifdef BENCHMARK_LOGS
+                sprTransparentSkips += (unsigned int)(lastPixel - firstPixel + 1);
+#endif
+                continue;
+            }
+
             const BYTE* rowIndex = DecodeTileRowCached(index, pbTData,
                                                        packedMode, color16,
                                                        TMap & SPR_HREV,
                                                        WS_RENDER_DECODE_COUNTER(spriteDecodeCalls));
-            const int zeroTransparent = color16 || (TMap & 0x0800);
 
             pW = WBuf + 8 + sprX + firstPixel;
             pZ = ZBuf + 8 + sprX + firstPixel;
