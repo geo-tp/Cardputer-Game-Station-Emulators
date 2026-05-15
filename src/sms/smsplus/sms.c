@@ -6,6 +6,13 @@ void ym2413_write(int chip, int offset, int data);
 t_sms sms;
 
 static uint8 coleco_pio_mode = 1; /* 1=joystick mode, 0=keypad mode */
+#ifdef COLECO_DEBUG_LOGS
+static unsigned coleco_dbg_port_writes[4];
+static unsigned coleco_dbg_port_reads[2];
+static unsigned coleco_dbg_keypad_selects;
+static unsigned coleco_dbg_joystick_selects;
+#endif
+
 static const uint8 coleco_keymask[12] =
 {
     0x7A, /* 0 */
@@ -133,6 +140,12 @@ void sms_reset(void)
     sms.paused = sms.save = sms.port_3F = sms.port_F2 = sms.irq = 0x00;
     sms.psg_mask = 0xFF;
     coleco_pio_mode = 1;
+#ifdef COLECO_DEBUG_LOGS
+    memset(coleco_dbg_port_writes, 0, sizeof(coleco_dbg_port_writes));
+    memset(coleco_dbg_port_reads, 0, sizeof(coleco_dbg_port_reads));
+    coleco_dbg_keypad_selects = 0;
+    coleco_dbg_joystick_selects = 0;
+#endif
 
     /* Load memory maps with default values */
     if (cart.type == TYPE_SG1000)
@@ -178,6 +191,17 @@ void sms_reset(void)
         cpu_writemap[5] = dummy;
         cpu_writemap[6] = dummy;
         cpu_writemap[7] = dummy;
+
+#ifdef COLECO_DEBUG_LOGS
+        printf("[COL][RESET] pages=%d rom=%p bios=%p dummy=%p ram=%p\n",
+               p, cart.rom, sms.coleco_bios, dummy, sms.ram);
+        printf("[COL][MAP] R0=%p R1=%p R2=%p R3=%p R4=%p R5=%p R6=%p R7=%p\n",
+               cpu_readmap[0], cpu_readmap[1], cpu_readmap[2], cpu_readmap[3],
+               cpu_readmap[4], cpu_readmap[5], cpu_readmap[6], cpu_readmap[7]);
+        printf("[COL][MAP] W0=%p W1=%p W2=%p W3=%p W4=%p W5=%p W6=%p W7=%p\n",
+               cpu_writemap[0], cpu_writemap[1], cpu_writemap[2], cpu_writemap[3],
+               cpu_writemap[4], cpu_writemap[5], cpu_writemap[6], cpu_writemap[7]);
+#endif
     }
     else
     {
@@ -246,19 +270,33 @@ void cpu_writeport(int port, int data)
         switch(port & 0xE0)
         {
             case 0x80: /* Coleco keypad mode select */
+#ifdef COLECO_DEBUG_LOGS
+                coleco_dbg_port_writes[0]++;
+                coleco_dbg_keypad_selects++;
+#endif
                 coleco_pio_mode = 0;
                 break;
 
             case 0xA0: /* TMS VDP */
+#ifdef COLECO_DEBUG_LOGS
+                coleco_dbg_port_writes[1]++;
+#endif
                 if (port & 1) vdp_ctrl_w(data);
                 else          vdp_data_w(data);
                 break;
 
             case 0xC0: /* Coleco joystick mode select */
+#ifdef COLECO_DEBUG_LOGS
+                coleco_dbg_port_writes[2]++;
+                coleco_dbg_joystick_selects++;
+#endif
                 coleco_pio_mode = 1;
                 break;
 
             case 0xE0: /* SN76489 PSG */
+#ifdef COLECO_DEBUG_LOGS
+                coleco_dbg_port_writes[3]++;
+#endif
                 if(snd.enabled) SN76496Write(0, data);
                 break;
 
@@ -354,9 +392,15 @@ int cpu_readport(int port)
         switch(port & 0xE0)
         {
             case 0xA0:
+#ifdef COLECO_DEBUG_LOGS
+                coleco_dbg_port_reads[0]++;
+#endif
                 return (port & 1) ? vdp_ctrl_r() : vdp_data_r();
 
             case 0xE0:
+#ifdef COLECO_DEBUG_LOGS
+                coleco_dbg_port_reads[1]++;
+#endif
                 if (coleco_pio_mode)
                 {
                     /* Joystick mode */
@@ -497,6 +541,30 @@ void sms_mapper_w(int address, int data)
             }
             break;
     }
+}
+
+void sms_debug_dump_state(unsigned frame)
+{
+#ifdef COLECO_DEBUG_LOGS
+    if (cart.type != TYPE_COLECO) return;
+
+    unsigned pc = z80_get_pc() & 0xFFFF;
+    unsigned sp = z80_get_sp() & 0xFFFF;
+    uint8 opcode = cpu_readmap[(pc >> 13) & 7][pc & 0x1FFF];
+
+    printf("[COL][FRAME %u] PC=%04X OP=%02X SP=%04X line=%u status=%02X r1=%02X irq=%u pio=%s pad=%08X sys=%08X\n",
+           frame, pc, opcode, sp, (unsigned)vdp.line, (unsigned)vdp.status,
+           (unsigned)vdp.reg[1], (unsigned)sms.irq,
+           coleco_pio_mode ? "joy" : "key",
+           (unsigned)input.pad[0], (unsigned)input.system);
+    printf("[COL][IO] W80=%u WA0=%u WC0=%u WE0=%u RA0=%u RE0=%u keySel=%u joySel=%u\n",
+           coleco_dbg_port_writes[0], coleco_dbg_port_writes[1],
+           coleco_dbg_port_writes[2], coleco_dbg_port_writes[3],
+           coleco_dbg_port_reads[0], coleco_dbg_port_reads[1],
+           coleco_dbg_keypad_selects, coleco_dbg_joystick_selects);
+#else
+    (void)frame;
+#endif
 }
 
 

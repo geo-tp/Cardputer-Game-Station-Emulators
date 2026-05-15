@@ -38,6 +38,7 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
   display.initialize();
 
   const bool isGG = (mode == SMS_MODE_GG);
+  const bool isColeco = (mode == SMS_MODE_COLECO);
   /* Persistent SRAM is only relevant for SMS/GG mappers. */
   const bool needsSram = (mode == SMS_MODE_SMS || mode == SMS_MODE_GG);
   const uint8_t consoleType = map_console_type(mode);
@@ -84,6 +85,19 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
   cart.type  = consoleType;
   smsZoomPercent = isGG ? 100 : 110;
   render_set_console_type(cart.type);
+
+  if (isColeco) {
+    EMU_LOG("[COL][BOOT] rom=%s ptr=%p len=%u pages8k=%u\n",
+            romName ? romName : "(null)", romPtr, (unsigned)romLen, (unsigned)cart.pages);
+    EMU_LOG("[COL][BOOT] buffers video=%p dummy=%p ram=%p sram=%p bios=%p (zero fallback)\n",
+            videoBuf, sms.dummy, sms.ram, sms.sram, sms.coleco_bios);
+    EMU_LOG("[COL][BOOT] rom[0..15]=");
+    for (size_t i = 0; i < romLen && i < 16; ++i) EMU_LOG(" %02X", romPtr[i]);
+    EMU_LOG("\n");
+    EMU_LOG("[COL][BOOT] bios[0..15]=");
+    for (size_t i = 0; i < 16; ++i) EMU_LOG(" %02X", ColecoVision_BIOS[i]);
+    EMU_LOG("\n");
+  }
   
   if (!z80_allocate_flag_tables()) {
     EMU_LOG("SMS Z80 alloc failed\n");
@@ -101,6 +115,11 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
   }
   emu_system_init(22050);
   system_reset();
+
+  if (isColeco) {
+    EMU_LOG("[COL][BOOT] after reset PC=%04X SP=%04X\n",
+            z80_get_pc() & 0xFFFF, z80_get_sp() & 0xFFFF);
+  }
 
   // Save
   if (sram) {
@@ -120,6 +139,7 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
   // Main loop
   bool lastToggle = fullscreen;
   uint32_t frameCount = 0;
+  uint32_t totalFrames = 0;
   uint32_t lastFpsTime = millis();
   float avgFrameTime = 0;
   float avgFrameTimeRT = 0;
@@ -153,6 +173,7 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
     avgFrameTime += emuUs;      // perf brute
     avgFrameTimeRT += frameUs;  // FPS effectif
     frameCount++;
+    totalFrames++;
 
     if (millis() - lastFpsTime >= 1000) {
       float avgRaw = avgFrameTime / frameCount;
@@ -164,6 +185,10 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
 
       EMU_LOG("[Perf] raw=%.1f us (%.1f fps, %.1f%%) | realtime=%.1f us (%.2f fps)\n",
             avgRaw, fpsRaw, speedPct, avgRT, fpsRT);
+
+      if (isColeco) {
+        sms_debug_dump_state(totalFrames);
+      }
 
       avgFrameTime = 0;
       avgFrameTimeRT = 0;

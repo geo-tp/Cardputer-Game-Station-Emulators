@@ -34,6 +34,7 @@ void sms_init(void);
 int  sms_init_ram(void);
 void sms_shutdown_ram(void);
 void sms_reset(void);
+void sms_debug_dump_state(unsigned frame);
 int  sms_irq_callback(int param);
 void sms_mapper_w(int address, int data);
 void cpu_reset(void);
