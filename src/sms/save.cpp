@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_heap_caps.h"
 #include <unistd.h>
 #include "share/game_save.h"  
 #include "share/emu_log_cpp.h"
@@ -16,10 +17,8 @@ static char*    g_save_path = nullptr;
 static uint32_t g_crc_last = 0;
 static TickType_t g_next_check = 0;
 static TickType_t g_next_allowed_write = 0;
-static TaskHandle_t g_save_task = nullptr;
-static uint8_t* g_sram_shadow = nullptr;
-static volatile bool g_flush_req = false;     // ask for flush
-static volatile bool g_check_req = false;     // ask for check (CRC)
+static bool     g_owns_sram = false;
+static bool     g_alloc_failed_logged = false;
 
 static void ensure_dir(void){ 
   mkdir("/sd/sms_saves", 0777); 
@@ -27,16 +26,11 @@ static void ensure_dir(void){
 
 static bool flush_now(void){
   if (!g_sram || !g_sram_len) return false;
+  if (!g_save_path) return false;
 
   if (share::gameSaveIsTrivialSram(g_sram, g_sram_len)) {
     EMU_LOG("SMS save: skip trivial SRAM, no write.\n");
     return false; 
-  }
-
-  const uint8_t* src = g_sram;
-  if (g_sram_shadow) {
-    memcpy(g_sram_shadow, g_sram, g_sram_len);
-    src = g_sram_shadow;
   }
 
   share::setGameIsSaving(true);
@@ -51,11 +45,21 @@ static bool flush_now(void){
   FILE* f = fopen(tmp_path, "wb");
   if (!f) {
     EMU_LOG("SMS save: fopen tmp fail %s\n", tmp_path);
+    share::setGameIsSaving(false);
     return false;
   }
   setvbuf(f, NULL, _IONBF, 0);
 
-  size_t w = fwrite(src, 1, g_sram_len, f);
+  size_t w = 0;
+  uint8_t chunk[512];
+  while (w < g_sram_len) {
+    size_t n = g_sram_len - w;
+    if (n > sizeof(chunk)) n = sizeof(chunk);
+    memcpy(chunk, g_sram + w, n);
+    size_t part = fwrite(chunk, 1, n, f);
+    w += part;
+    if (part != n) break;
+  }
   fflush(f);
   fsync(fileno(f));
   fclose(f);
@@ -63,6 +67,7 @@ static bool flush_now(void){
   if (w != g_sram_len) {
     EMU_LOG("SMS save: short write %u/%u to %s\n",
            (unsigned)w, (unsigned)g_sram_len, tmp_path);
+    share::setGameIsSaving(false);
     return false;
   }
 
@@ -70,6 +75,7 @@ static bool flush_now(void){
   unlink(g_save_path);
   if (rename(tmp_path, g_save_path) != 0) {
     EMU_LOG("SMS save: rename failed %s -> %s\n", tmp_path, g_save_path);
+    share::setGameIsSaving(false);
     return false;
   }
 
@@ -80,67 +86,45 @@ static bool flush_now(void){
   return true;
 }
 
-static void SaveTask(void*){
-  for(;;){
-    // sleep until notified
-    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(CHECK_MS));
-
-    bool do_check = g_check_req; g_check_req = false;
-    bool do_flush = g_flush_req; g_flush_req = false;
-
-    TickType_t now = xTaskGetTickCount();
-
-    if (do_check) {
-      uint32_t crc = share::gameSaveCrc32Update(0, g_sram, g_sram_len);
-      if (crc != g_crc_last && now >= g_next_allowed_write){
-        g_crc_last = crc;
-
-        if (!share::gameSaveIsTrivialSram(g_sram, g_sram_len)) {
-          do_flush = true;
-        } else {
-          EMU_LOG("SMS save: trivial after change, skip write.\n");
-        }
-      }
-    }
-
-    // flush if requested and allowed
-    if (do_flush && now >= g_next_allowed_write) {
-      bool ok = flush_now();
-      if (ok) {
-        // save OK
-        g_next_allowed_write = xTaskGetTickCount() + pdMS_TO_TICKS(GAP_MS);
-      } else {
-        // failed, dont delay next attempt
-        g_crc_last = 0xFFFFFFFFu;
-        EMU_LOG("SMS save: flush failed, will retry on next tick.\n");
-      }
-    }
-  }
-}
-
-void sms_save_init(const char* romName, uint8_t* sramPtr, size_t sramLen){
+void sms_save_prepare(const char* romName, size_t sramLen){
   if (!g_save_path) {
     g_save_path = (char*)malloc(PATH_MAX);
     if (!g_save_path) abort();
   }
-  g_sram = sramPtr;
   g_sram_len = sramLen;
   share::gameSaveBuildPath(g_save_path, PATH_MAX, "/sd/sms_saves", romName, "rom.sms");
-  g_crc_last = (g_sram && g_sram_len) ? share::gameSaveCrc32Update(0, g_sram, g_sram_len) : 0;
+  g_crc_last = 0;
   g_next_check = g_next_allowed_write = 0;
+  g_alloc_failed_logged = false;
+}
 
-  // snapshot SRAM
-  if (!g_sram_shadow && g_sram_len) {
-    g_sram_shadow = (uint8_t*)malloc(g_sram_len);
-    if (!g_sram_shadow) {
-      EMU_LOG("SMS save: no shadow buffer, will write live.\n");
+uint8_t* sms_save_ensure_sram(void){
+  if (g_sram) return g_sram;
+  if (!g_save_path || !g_sram_len) return nullptr;
+
+  g_sram = (uint8_t*)heap_caps_aligned_alloc(
+      32, g_sram_len, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (!g_sram) {
+    if (!g_alloc_failed_logged) {
+      EMU_LOG("SMS save: SRAM alloc failed (%u bytes), save RAM disabled.\n",
+              (unsigned)g_sram_len);
+      g_alloc_failed_logged = true;
     }
+    return nullptr;
   }
 
-  // launch save task
-  if (!g_save_task) {
-    xTaskCreatePinnedToCore(SaveTask, "SaveTask", 4096, nullptr, 2, &g_save_task, 0);
-  }
+  g_owns_sram = true;
+  memset(g_sram, 0xFF, g_sram_len);
+  EMU_LOG("SMS save: SRAM allocated lazily: %u bytes\n", (unsigned)g_sram_len);
+  sms_save_load();
+  return g_sram;
+}
+
+void sms_save_init(const char* romName, uint8_t* sramPtr, size_t sramLen){
+  sms_save_prepare(romName, sramLen);
+  g_sram = sramPtr;
+  g_owns_sram = false;
+  g_crc_last = (g_sram && g_sram_len) ? share::gameSaveCrc32Update(0, g_sram, g_sram_len) : 0;
 }
 
 void sms_save_load(void){
@@ -162,6 +146,7 @@ void sms_save_load(void){
     f = fopen(tmp_path, "rb");
     if (!f) {
       EMU_LOG("SMS load: no save, %s nor %s\n", g_save_path, tmp_path);
+      g_crc_last = share::gameSaveCrc32Update(0, g_sram, g_sram_len);
       return;
     }
 
@@ -187,8 +172,23 @@ void sms_save_tick(void){
   if (now < g_next_check) return;
   g_next_check = now + pdMS_TO_TICKS(CHECK_MS);
 
-  g_check_req = true;
-  if (g_save_task) xTaskNotifyGive(g_save_task);
+  uint32_t crc = share::gameSaveCrc32Update(0, g_sram, g_sram_len);
+  if (crc == g_crc_last) return;
+
+  g_crc_last = crc;
+  if (share::gameSaveIsTrivialSram(g_sram, g_sram_len)) {
+    EMU_LOG("SMS save: trivial after change, skip write.\n");
+    return;
+  }
+
+  if (now >= g_next_allowed_write) {
+    if (flush_now()) {
+      g_next_allowed_write = xTaskGetTickCount() + pdMS_TO_TICKS(GAP_MS);
+    } else {
+      g_crc_last = 0xFFFFFFFFu;
+      EMU_LOG("SMS save: flush failed, will retry on next tick.\n");
+    }
+  }
 }
 
 void sms_save_force_flush(void){
@@ -196,20 +196,15 @@ void sms_save_force_flush(void){
 }
 
 void sms_save_shutdown(void){
-  if (g_save_task) {
-    vTaskDelete(g_save_task);
-    g_save_task = nullptr;
-  }
-
-  free(g_sram_shadow);
-  g_sram_shadow = nullptr;
-
   free(g_save_path);
   g_save_path = nullptr;
 
+  if (g_owns_sram && g_sram) {
+    heap_caps_free(g_sram);
+  }
   g_sram = nullptr;
   g_sram_len = 0;
   g_crc_last = 0;
-  g_flush_req = false;
-  g_check_req = false;
+  g_owns_sram = false;
+  g_alloc_failed_logged = false;
 }

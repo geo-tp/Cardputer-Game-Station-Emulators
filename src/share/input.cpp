@@ -10,6 +10,7 @@ static uint32_t s_lastInputUs = 0;
 uint32_t lastPadState = 0xFFFFFFFF;
 static const uint32_t INPUT_POLL_PERIOD_MS = 32;
 constexpr int64_t INPUT_POLL_PERIOD_US = 1000 * INPUT_POLL_PERIOD_MS;
+static share::BeforeRestartCallback s_beforeRestartCallback = nullptr;
 
 // I2C joypad type
 enum I2cPadType : uint8_t {
@@ -34,6 +35,16 @@ static constexpr uint8_t JOYSTICK1_ADDR = 0x52;
 
 namespace share
 {
+    void setBeforeRestartCallback(BeforeRestartCallback callback)
+    {
+        s_beforeRestartCallback = callback;
+    }
+
+    void clearBeforeRestartCallback()
+    {
+        s_beforeRestartCallback = nullptr;
+    }
+
    bool shouldPollInput()
     {
         uint32_t now = esp_timer_get_time();
@@ -57,6 +68,10 @@ namespace share
             prefs.begin("cardputer_emu", false);  // RW
             prefs.putBool("quit_game", true);
             prefs.end();
+
+            if (s_beforeRestartCallback) {
+                s_beforeRestartCallback();
+            }
             
             while (gameIsSaving()) {
                 delay(1); // wait for save to finish
