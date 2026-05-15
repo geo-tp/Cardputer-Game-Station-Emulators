@@ -212,6 +212,15 @@ static void S9XLineRenderAlt(uint32_t srcY,
 
 extern "C" void S9xSetLineCallback(S9xLineCallback cb);
 
+static void snes_log_heap_step(const char* step)
+{
+    EMU_LOG("[SNES][INIT] %-14s heap=%u largestInternal=%u largest8=%u\n",
+            step,
+            esp_get_free_heap_size(),
+            heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+            heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+}
+
 /* ---------------------------------------------------- */
 /* Input hook                                           */
 /* ---------------------------------------------------- */
@@ -256,44 +265,53 @@ bool S9xInitDisplay(void)
 
 bool snes_init()
 {
+    snes_log_heap_step("start");
+
     if (!S9xInitDisplay())
     {
         EMU_LOG("[SNES] S9xInitDisplay failed\n");
         return false;
     }
-
-    if (!S9xInitMemory())
-    {
-        EMU_LOG("[SNES] S9xInitMemory failed\n");
-        return false;
-    }
-
-    if (!snes_save_alloc_sram())
-        EMU_LOG("[SNES] SRAM allocation failed\n");
+    snes_log_heap_step("display");
 
     if (!S9xInitGFX())
     {
         EMU_LOG("[SNES] S9xInitGFX failed\n");
         return false;
     }
+    snes_log_heap_step("gfx");
+
+    if (!S9xInitMemory())
+    {
+        EMU_LOG("[SNES] S9xInitMemory failed\n");
+        return false;
+    }
+    snes_log_heap_step("memory");
+
+    if (!snes_save_alloc_sram())
+        EMU_LOG("[SNES] SRAM allocation failed\n");
+    snes_log_heap_step("sram");
 
     if (!S9xInitMap())
     {
         EMU_LOG("[SNES] S9xInitMap failed\n");
         return false;
     }
+    snes_log_heap_step("map");
 
     if (!S9xInitPpu())
     {
         EMU_LOG("[SNES] S9xInitPpu failed\n");
         return false;
     }
+    snes_log_heap_step("ppu");
 
     if (!S9xInitLineBuffers())
     {
         EMU_LOG("[SNES] S9xInitLineBuffers failed\n");
         return false;
     }
+    snes_log_heap_step("linebuf");
 
     /* NULL means use already mapped ROM */
     if (!LoadROM(NULL))

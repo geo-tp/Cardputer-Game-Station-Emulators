@@ -8,6 +8,12 @@
 #include "share/game_save.h"
 #include "share/emu_log_cpp.h"
 
+#ifdef WS_LOGS_ENABLED
+#define WS_LOG(...) EMU_LOG(__VA_ARGS__)
+#else
+#define WS_LOG(...) ((void)0)
+#endif
+
 extern "C" {
 // Core WS 
 extern int RAMSize;
@@ -122,7 +128,7 @@ static bool flush_backed_dirty_pages(){
       }
       if (fwrite(buf, 1, n, f) != n) {
         fclose(f);
-        EMU_LOG("[WS][SAVE] write error saving %s\n", g_save_path);
+        WS_LOG("[WS][SAVE] write error saving %s\n", g_save_path);
         return false;
       }
       done += n;
@@ -138,7 +144,7 @@ static bool flush_backed_dirty_pages(){
 
   WsSramBackingClearDirtyPages(dirtyMask);
   g_save_dirty = WsSramBackingDirty() != 0;
-  EMU_LOG("[WS][SAVE] wrote %u dirty pages/%u bytes -> %s\n",
+  WS_LOG("[WS][SAVE] wrote %u dirty pages/%u bytes -> %s\n",
          pagesWritten, (unsigned)bytesWritten, g_save_path);
   return true;
 }
@@ -175,7 +181,7 @@ static bool flush_now(){
     if (w != n) {
       // erreur write
       fclose(f);
-      EMU_LOG("[WS][SAVE] write error saving %s\n", g_save_path);
+      WS_LOG("[WS][SAVE] write error saving %s\n", g_save_path);
       return false;
     }
     offset    += n;
@@ -187,7 +193,7 @@ static bool flush_now(){
   fsync(fileno(f));
   fclose(f);
 
-  EMU_LOG("[WS][SAVE] wrote %u bytes -> %s\n",
+  WS_LOG("[WS][SAVE] wrote %u bytes -> %s\n",
          (unsigned)g_sram_len, g_save_path);
 
   g_crc_last = crc;
@@ -213,7 +219,7 @@ void ws_save_init(const char* romPathOrName){
   const bool has_sram_backing = !is_eep && ok_size && WsSramBackingActive();
 
   if (!ok_size || RAMBanks < 1 || (!has_sram_ptr && !has_sram_backing)) {
-    EMU_LOG("[WS][SAVE] ignored (size=%d, banks=%d, kind=%s)\n",
+    WS_LOG("[WS][SAVE] ignored (size=%d, banks=%d, kind=%s)\n",
            RAMSize, RAMBanks, is_eep ? "EEP" : "SRAM");
     g_sram      = nullptr;
     g_sram_backed = false;
@@ -227,7 +233,7 @@ void ws_save_init(const char* romPathOrName){
   if (!g_save_path) {
     g_save_path = (char*)malloc(PATH_MAX);
     if (!g_save_path) {
-      EMU_LOG("[WS][SAVE] ignored (OOM on path alloc)\n");
+      WS_LOG("[WS][SAVE] ignored (OOM on path alloc)\n");
       g_sram      = nullptr;
       g_sram_backed = false;
       g_sram_len  = 0;
@@ -252,7 +258,7 @@ void ws_save_init(const char* romPathOrName){
   g_save_dirty  = false;
   if (g_sram_backed) WsSramBackingClearDirty();
 
-  EMU_LOG("[WS][SAVE] path=%s len=%u (%s)\n",
+  WS_LOG("[WS][SAVE] path=%s len=%u (%s)\n",
          g_save_path,
          (unsigned)g_sram_len,
          is_eep ? "EEP" : "SRAM");
@@ -261,7 +267,7 @@ void ws_save_init(const char* romPathOrName){
 void ws_save_load(void){
   if ((!g_sram && !g_sram_backed) || !g_sram_len) return;
   if (!share::gameSaveEnsureParentReady(WS_SAVE_DIR)) {
-    EMU_LOG("[WS][SAVE] skip load (storage not ready)\n");
+    WS_LOG("[WS][SAVE] skip load (storage not ready)\n");
     return;
   }
 
@@ -275,15 +281,15 @@ void ws_save_load(void){
 
     // Tenter le rename
     if (rename(tmp_path, g_save_path) == 0) {
-      EMU_LOG("[WS][SAVE] promoted temp -> sav: %s\n", g_save_path);
+      WS_LOG("[WS][SAVE] promoted temp -> sav: %s\n", g_save_path);
       f = fopen(g_save_path, "rb"); // rouvre le .sav
     } else {
       // lire .tmp
       f = fopen(tmp_path, "rb");
       if (f) {
-        EMU_LOG("[WS][SAVE] loading from temp (rename failed)\n");
+        WS_LOG("[WS][SAVE] loading from temp (rename failed)\n");
       } else {
-        EMU_LOG("[WS][SAVE] no save and no temp: %s\n", g_save_path);
+        WS_LOG("[WS][SAVE] no save and no temp: %s\n", g_save_path);
         return;
       }
     }
@@ -316,7 +322,7 @@ void ws_save_load(void){
 
   g_crc_last = g_sram_backed ? 0 : share::gameSaveCrc32Update(0, g_sram, g_sram_len);
   if (g_sram_backed) WsSramBackingClearDirty();
-  EMU_LOG("[WS][SAVE] loaded %u/%u from %s\n",
+  WS_LOG("[WS][SAVE] loaded %u/%u from %s\n",
          (unsigned)(g_sram_len - remaining), (unsigned)g_sram_len, g_save_path);
 }
 
@@ -355,6 +361,6 @@ void ws_save_force_flush(void){
   bool ok = flush_now();
   share::setGameIsSaving(false);
   if (!ok) {
-    EMU_LOG("[WS][SAVE] final save failed, will retry if requested\n");
+    WS_LOG("[WS][SAVE] final save failed, will retry if requested\n");
   }
 }

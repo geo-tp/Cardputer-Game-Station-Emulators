@@ -197,7 +197,14 @@ bool S9xInitGFX(void)
 {
    LocalState = calloc(1, sizeof(*LocalState));
    if (!LocalState)
+   {
+      printf("[SNES][GFX] LocalState alloc failed: size=%u heap=%u largestInternal=%u largest8=%u\n",
+             (unsigned)sizeof(*LocalState),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
       return false;
+   }
 
    GFX.OBJLines = LocalState->OBJLines;
    GFX.RealPitch = GFX.Pitch2 = GFX.Pitch;
@@ -220,13 +227,27 @@ bool S9xInitGFX(void)
    GFX.OBJWidths = malloc(128);
    GFX.OBJVisibleTiles = malloc(128);
    if (!GFX.OBJWidths || !GFX.OBJVisibleTiles)
+   {
+      printf("[SNES][GFX] OBJ alloc failed: widths=%p visible=%p heap=%u largestInternal=%u largest8=%u\n",
+             GFX.OBJWidths, GFX.OBJVisibleTiles,
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
       return false;
+   }
    memset(GFX.OBJWidths, 0, 128);
    memset(GFX.OBJVisibleTiles, 0, 128);
 
 #ifndef NO_ZERO_LUT
    if (!(GFX.ZERO = (uint16_t*) malloc(sizeof(uint16_t) * 0x10000)))
+   {
+      printf("[SNES][GFX] ZERO LUT alloc failed: size=%u heap=%u largestInternal=%u largest8=%u\n",
+             (unsigned)(sizeof(uint16_t) * 0x10000),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
       return false;
+   }
 
    /* Build a lookup table that if the top bit of the color value is zero
     * then the value is zero, otherwise its just the value. */

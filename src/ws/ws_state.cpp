@@ -18,6 +18,12 @@ extern "C" {
 #include "share/game_save.h"
 #include "ws_sound.h"
 
+#ifdef WS_LOGS_ENABLED
+#define WS_LOG(...) EMU_LOG(__VA_ARGS__)
+#else
+#define WS_LOG(...) ((void)0)
+#endif
+
 #define WS_STATE_DIR "/sd/ws_saves"
 #define WS_STATE_MAGIC 0x54535357u
 #define WS_STATE_VERSION 1u
@@ -67,7 +73,7 @@ void ws_state_init(const char* romPathOrName)
   if (!g_state_path) {
     g_state_path = (char*)malloc(PATH_MAX);
     if (!g_state_path) {
-      EMU_LOG("[WS][STATE] disabled (OOM on path alloc)\n");
+      WS_LOG("[WS][STATE] disabled (OOM on path alloc)\n");
       return;
     }
   }
@@ -76,7 +82,7 @@ void ws_state_init(const char* romPathOrName)
   make_state_path(romPathOrName);
   g_request_save = false;
   g_request_load = false;
-  EMU_LOG("[WS][STATE] path=%s\n", g_state_path);
+  WS_LOG("[WS][STATE] path=%s\n", g_state_path);
 }
 
 void ws_state_request_save(void)
@@ -93,7 +99,7 @@ bool ws_state_save_now(void)
 {
   if (!g_state_path || !g_state_path[0]) return false;
   if (!share::gameSaveEnsureParentReady(WS_STATE_DIR)) {
-    EMU_LOG("[WS][STATE] save skipped, storage not ready\n");
+    WS_LOG("[WS][STATE] save skipped, storage not ready\n");
     return false;
   }
 
@@ -126,9 +132,9 @@ bool ws_state_save_now(void)
   share::setGameIsSaving(false);
 
   if (ok) {
-    EMU_LOG("[WS][STATE] saved %s\n", g_state_path);
+    WS_LOG("[WS][STATE] saved %s\n", g_state_path);
   } else {
-    EMU_LOG("[WS][STATE] save failed %s\n", g_state_path);
+    WS_LOG("[WS][STATE] save failed %s\n", g_state_path);
   }
   return ok;
 }
@@ -137,13 +143,13 @@ bool ws_state_load_now(void)
 {
   if (!g_state_path || !g_state_path[0]) return false;
   if (!share::gameSaveEnsureParentReady(WS_STATE_DIR)) {
-    EMU_LOG("[WS][STATE] load skipped, storage not ready\n");
+    WS_LOG("[WS][STATE] load skipped, storage not ready\n");
     return false;
   }
 
   FILE* fp = fopen(g_state_path, "rb");
   if (!fp) {
-    EMU_LOG("[WS][STATE] no state file: %s\n", g_state_path);
+    WS_LOG("[WS][STATE] no state file: %s\n", g_state_path);
     return false;
   }
 
@@ -168,9 +174,9 @@ bool ws_state_load_now(void)
   fclose(fp);
 
   if (ok) {
-    EMU_LOG("[WS][STATE] loaded %s\n", g_state_path);
+    WS_LOG("[WS][STATE] loaded %s\n", g_state_path);
   } else {
-    EMU_LOG("[WS][STATE] load failed or incompatible: %s\n", g_state_path);
+    WS_LOG("[WS][STATE] load failed or incompatible: %s\n", g_state_path);
   }
   return ok;
 }

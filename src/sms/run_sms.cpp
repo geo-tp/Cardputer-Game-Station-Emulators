@@ -98,6 +98,7 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
   render_set_console_type(cart.type);
 
   if (isColeco) {
+#ifdef COLECO_DEBUG_LOGS
     EMU_LOG("[COL][BOOT] rom=%s ptr=%p len=%u pages8k=%u\n",
             romName ? romName : "(null)", romPtr, (unsigned)romLen, (unsigned)cart.pages);
     EMU_LOG("[COL][BOOT] buffers video=%p dummy=%p ram=%p sram=%p bios=%p (%s)\n",
@@ -109,6 +110,7 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
     EMU_LOG("[COL][BOOT] bios[0..15]=");
     for (size_t i = 0; i < 16; ++i) EMU_LOG(" %02X", sms.coleco_bios[i]);
     EMU_LOG("\n");
+#endif
   }
   
   if (!z80_allocate_flag_tables()) {
@@ -133,8 +135,10 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
   system_reset();
 
   if (isColeco) {
+#ifdef COLECO_DEBUG_LOGS
     EMU_LOG("[COL][BOOT] after reset PC=%04X SP=%04X\n",
             z80_get_pc() & 0xFFFF, z80_get_sp() & 0xFFFF);
+#endif
   }
 
   // Display
@@ -197,7 +201,9 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
             avgRaw, fpsRaw, speedPct, avgRT, fpsRT);
 
       if (isColeco) {
+#ifdef COLECO_DEBUG_LOGS
         sms_debug_dump_state(totalFrames);
+#endif
       }
 
       avgFrameTime = 0;

@@ -12,6 +12,12 @@ $Rev: 71 $
 #include "WSRender.h"
 #include "cpu/necintrf.h"
 
+#ifdef WS_LOGS_ENABLED
+#define WS_LOGF(...) printf(__VA_ARGS__)
+#else
+#define WS_LOGF(...) ((void)0)
+#endif
+
 #define ERR_MALLOC					0
 #define ERR_OVER_RAMSIZE			0
 #define ERR_WRITE_ROM				0
@@ -341,19 +347,19 @@ int WsCreateFromMemory(const uint8_t *romData, size_t romSize)
     static BYTE dummy_byte = 0xFF;
     BYTE* dummy = &dummy_byte;
 
-    printf("[WS] ===== WsCreateFromMemory (XIP, no-copy) =====\n");
-    printf("[WS] ROM buffer: %p, size: %zu bytes\n", romData, romSize);
+    WS_LOGF("[WS] ===== WsCreateFromMemory (XIP, no-copy) =====\n");
+    WS_LOGF("[WS] ROM buffer: %p, size: %zu bytes\n", romData, romSize);
 
     if (!romData || romSize < 10) {
-        printf("[WS] Invalid ROM buffer\n");
+        WS_LOGF("[WS] Invalid ROM buffer\n");
         return -1;
     }
 
     /* Read the last 10 bytes */
     memcpy(footer, romData + romSize - 10, 10);
-    printf("[WS] Footer: ");
-    for (i = 0; i < 10; i++) printf("%02X ", footer[i]);
-    printf("\n");
+    WS_LOGF("[WS] Footer: ");
+    for (i = 0; i < 10; i++) WS_LOGF("%02X ", footer[i]);
+    WS_LOGF("\n");
 
     /* Determine ROMBanks from footer */
     switch (footer[4]) {
@@ -370,10 +376,10 @@ int WsCreateFromMemory(const uint8_t *romData, size_t romSize)
             ROMBanks = (int)((romSize + 0xFFFFu) >> 16);
             if (ROMBanks <= 0)   ROMBanks = 1;
             if (ROMBanks > 256)  ROMBanks = 256;
-            printf("[WS] Unknown ROM size flag %02X, fallback banks=%d\n", footer[4], ROMBanks);
+            WS_LOGF("[WS] Unknown ROM size flag %02X, fallback banks=%d\n", footer[4], ROMBanks);
             break;
     }
-    printf("[WS] ROMBanks = %d\n", ROMBanks);
+    WS_LOGF("[WS] ROMBanks = %d\n", ROMBanks);
 
     /* RAM/EEP for save */
     switch (footer[5]) {
@@ -386,7 +392,7 @@ int WsCreateFromMemory(const uint8_t *romData, size_t romSize)
         case 0x50: RAMBanks = 1; RAMSize = 0x400;   CartKind = CK_EEP; break;  /* 1 KiB  */
         default:   RAMBanks = 0; RAMSize = 0;       CartKind = 0;      break;
     }
-    printf("[WS] RAMBanks=%d, RAMSize=0x%X, CartKind=%d\n", RAMBanks, RAMSize, CartKind);
+    WS_LOGF("[WS] RAMBanks=%d, RAMSize=0x%X, CartKind=%d\n", RAMBanks, RAMSize, CartKind);
 
     /* Possible ROM patches */
     WsRomPatch((BYTE*)footer);
@@ -412,7 +418,7 @@ int WsCreateFromMemory(const uint8_t *romData, size_t romSize)
         if (!(CartKind & CK_EEP) && RAMSize >= 0x8000) {
             WsSramBackingInit(1);
             if (WsSramBackingActive()) {
-                printf("[WS] SRAM backed by SD cache: %u bytes\n", (unsigned)RAMSize);
+                WS_LOGF("[WS] SRAM backed by SD cache: %u bytes\n", (unsigned)RAMSize);
             }
         }
         if (!WsSramBackingActive()) {
@@ -420,32 +426,32 @@ int WsCreateFromMemory(const uint8_t *romData, size_t romSize)
         }
         if (!one) {
             if (!WsSramBackingActive()) {
-                printf("[WS] Save memory malloc %uB failed, mapping to MemDummy\n", (unsigned)allocSize);
+                WS_LOGF("[WS] Save memory malloc %uB failed, mapping to MemDummy\n", (unsigned)allocSize);
             }
             if (!WsSramBackingActive() && !(CartKind & CK_EEP) && RAMSize > 0) {
                 WsSramBackingInit(1);
                 if (WsSramBackingActive()) {
-                    printf("[WS] SRAM backed by SD cache: %u bytes\n", (unsigned)RAMSize);
+                    WS_LOGF("[WS] SRAM backed by SD cache: %u bytes\n", (unsigned)RAMSize);
                 }
             }
         }
         if (one) {
             memset(one, (CartKind & CK_EEP) ? 0xFF : 0x00, allocSize);
             RAMMap[0] = one; 
-            printf("[WS] Save memory allocated: %u bytes (%s)\n",
+            WS_LOGF("[WS] Save memory allocated: %u bytes (%s)\n",
                    (unsigned)allocSize,
                    (CartKind & CK_EEP) ? "EEP" : "SRAM");
         }
     } else if (RAMBanks > 1) {
         BYTE* one = (BYTE*)malloc(0x10000u);
         if (!one) {
-            printf("[WS] Multi-bank SRAM bank0 malloc failed (%d banks, size=0x%X)\n",
+            WS_LOGF("[WS] Multi-bank SRAM bank0 malloc failed (%d banks, size=0x%X)\n",
                    RAMBanks, RAMSize);
         } else {
             memset(one, 0x00, 0x10000u);
             RAMMap[0] = one;
             WsSramBackingInit(RAMBanks);
-            printf("[WS] Multi-bank SRAM backed by 64KB window: 65536/%u bytes\n",
+            WS_LOGF("[WS] Multi-bank SRAM backed by 64KB window: 65536/%u bytes\n",
                    (unsigned)RAMSize);
         }
     }
@@ -453,8 +459,8 @@ int WsCreateFromMemory(const uint8_t *romData, size_t romSize)
     WsReset();
     SetHVMode(footer[6] & 1);  /* 0: H, 1: V */
 
-    printf("[WS] Ready (HVMode=%d). XIP ROM mapped.\n", footer[6] & 1);
-    printf("[WS] ============================================\n");
+    WS_LOGF("[WS] Ready (HVMode=%d). XIP ROM mapped.\n", footer[6] & 1);
+    WS_LOGF("[WS] ============================================\n");
     return 0;
 }
 
