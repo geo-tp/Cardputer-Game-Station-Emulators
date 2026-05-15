@@ -9,6 +9,7 @@ static uint8 coleco_pio_mode = 1; /* 1=joystick mode, 0=keypad mode */
 #ifdef COLECO_DEBUG_LOGS
 static unsigned coleco_dbg_port_writes[4];
 static unsigned coleco_dbg_port_reads[2];
+static unsigned coleco_dbg_mem_writes[8];
 static unsigned coleco_dbg_keypad_selects;
 static unsigned coleco_dbg_joystick_selects;
 #endif
@@ -143,6 +144,7 @@ void sms_reset(void)
 #ifdef COLECO_DEBUG_LOGS
     memset(coleco_dbg_port_writes, 0, sizeof(coleco_dbg_port_writes));
     memset(coleco_dbg_port_reads, 0, sizeof(coleco_dbg_port_reads));
+    memset(coleco_dbg_mem_writes, 0, sizeof(coleco_dbg_mem_writes));
     coleco_dbg_keypad_selects = 0;
     coleco_dbg_joystick_selects = 0;
 #endif
@@ -173,11 +175,11 @@ void sms_reset(void)
     {
         int p = cart.pages ? cart.pages : 1;
 
-        /* 0000-1FFF BIOS, 2000-5FFF expansion, 6000-7FFF RAM mirror, 8000-FFFF CART */
+        /* 0000-1FFF BIOS, 2000-5FFF expansion/open bus, 6000-7FFF RAM, 8000-FFFF CART */
         cpu_readmap[0] = sms.coleco_bios ? sms.coleco_bios + 0x0000 : dummy;
-        cpu_readmap[1] = sms.coleco_bios ? sms.coleco_bios + 0x2000 : dummy;
+        cpu_readmap[1] = dummy;
         cpu_readmap[2] = dummy;
-        cpu_readmap[3] = dummy;
+        cpu_readmap[3] = sms.ram ? sms.ram : dummy;
         cpu_readmap[4] = cart.rom + (((0 % p) << 13));
         cpu_readmap[5] = cart.rom + (((1 % p) << 13));
         cpu_readmap[6] = cart.rom + (((2 % p) << 13));
@@ -186,7 +188,7 @@ void sms_reset(void)
         cpu_writemap[0] = dummy;
         cpu_writemap[1] = dummy;
         cpu_writemap[2] = dummy;
-        cpu_writemap[3] = dummy;
+        cpu_writemap[3] = sms.ram ? sms.ram : dummy;
         cpu_writemap[4] = dummy;
         cpu_writemap[5] = dummy;
         cpu_writemap[6] = dummy;
@@ -242,6 +244,9 @@ void cpu_reset(void)
 /* Write to memory */
 void cpu_writemem16(int address, int data)
 {
+#ifdef COLECO_DEBUG_LOGS
+    if (cart.type == TYPE_COLECO) coleco_dbg_mem_writes[(address >> 13) & 7]++;
+#endif
     cpu_writemap[(address >> 13)][(address & 0x1FFF)] = data;
     if(address >= 0xFFFC) sms_mapper_w(address & 3, data);
 }
@@ -562,6 +567,11 @@ void sms_debug_dump_state(unsigned frame)
            coleco_dbg_port_writes[2], coleco_dbg_port_writes[3],
            coleco_dbg_port_reads[0], coleco_dbg_port_reads[1],
            coleco_dbg_keypad_selects, coleco_dbg_joystick_selects);
+    printf("[COL][MEMW] MW0=%u MW1=%u MW2=%u MW3=%u MW4=%u MW5=%u MW6=%u MW7=%u\n",
+           coleco_dbg_mem_writes[0], coleco_dbg_mem_writes[1],
+           coleco_dbg_mem_writes[2], coleco_dbg_mem_writes[3],
+           coleco_dbg_mem_writes[4], coleco_dbg_mem_writes[5],
+           coleco_dbg_mem_writes[6], coleco_dbg_mem_writes[7]);
 #else
     (void)frame;
 #endif

@@ -46,19 +46,23 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
   // Runtime buffers only: no core allocation at boot.
   uint8_t* videoBuf = (uint8_t*)heap_caps_aligned_alloc(
       32, 256 * 240, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT | MALLOC_CAP_DMA);
+  uint8_t* dummyBuf = (uint8_t*)heap_caps_aligned_alloc(
+      32, 0x2000, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   uint8_t* sram = nullptr;
   if (needsSram) {
     sram = (uint8_t*)heap_caps_aligned_alloc(
         32, 0x8000, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
   }
 
-  if (!videoBuf || (needsSram && !sram)) {
-    EMU_LOG("SMS core alloc failed: video=%p sram=%p\n", videoBuf, sram);
+  if (!videoBuf || !dummyBuf || (needsSram && !sram)) {
+    EMU_LOG("SMS core alloc failed: video=%p dummy=%p sram=%p\n", videoBuf, dummyBuf, sram);
     free(videoBuf);
+    free(dummyBuf);
     free(sram);
     return;
   }
 
+  memset(dummyBuf, 0, 0x2000);
   if (sram) memset(sram, 0xFF, 0x8000);
 
   const bool hasColecoBios = isColeco && colecoBiosPtr && colecoBiosLen >= 8192;
@@ -67,7 +71,7 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
       : nullptr;
 
   // Mapping structures core
-  sms.dummy = videoBuf;
+  sms.dummy = dummyBuf;
   sms.sram  = sram;
 
   bitmap.width  = 256;
@@ -104,6 +108,7 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
   if (!z80_allocate_flag_tables()) {
     EMU_LOG("SMS Z80 alloc failed\n");
     free(videoBuf);
+    free(dummyBuf);
     free(sram);
     sms.coleco_bios = nullptr;
     return;
@@ -111,6 +116,7 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
   if (!sms_init_ram()) {
     EMU_LOG("SMS WRAM alloc failed\n");
     free(videoBuf);
+    free(dummyBuf);
     free(sram);
     sms.coleco_bios = nullptr;
     return;
