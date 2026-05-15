@@ -9,6 +9,7 @@
 #include "vfs/partitioner.h"
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include "nes/run_nes.h"
 #include "sms/run_sms.h"
@@ -29,6 +30,147 @@
 #include "esp_task_wdt.h"
 #include "share/input.h"
 #include "share/emu_log_cpp.h"
+
+static constexpr size_t COLECO_BIOS_SIZE = 8192;
+
+enum class ColecoFlashStatus {
+  Ok,
+  BiosOpenFailed,
+  BiosSizeInvalid,
+  RomOpenFailed,
+  RomSizeInvalid,
+  TooLarge,
+  EraseFailed,
+  AllocFailed,
+  ReadFailed,
+  WriteFailed
+};
+
+static std::string colecoBiosPathForRom(const std::string& romPath) {
+  size_t pos = romPath.find_last_of("/\\");
+  if (pos == std::string::npos) return "coleco.rom";
+  return romPath.substr(0, pos + 1) + "coleco.rom";
+}
+
+static bool getFileSizeBytes(const char* path, size_t* outSize) {
+  if (outSize) *outSize = 0;
+  FILE* f = fopen(path, "rb");
+  if (!f) return false;
+  if (fseek(f, 0, SEEK_END) != 0) {
+    fclose(f);
+    return false;
+  }
+  long size = ftell(f);
+  fclose(f);
+  if (size <= 0) return false;
+  if (outSize) *outSize = (size_t)size;
+  return true;
+}
+
+static ColecoFlashStatus appendFileToPartition(
+    const char* path,
+    const esp_partition_t* part,
+    size_t offset,
+    size_t fileSize,
+    size_t progressTotal,
+    CopyProgressCallback progressCb,
+    void* progressCtx
+) {
+  FILE* f = fopen(path, "rb");
+  if (!f) return ColecoFlashStatus::RomOpenFailed;
+
+  uint8_t* buf = (uint8_t*)malloc(8192);
+  if (!buf) {
+    fclose(f);
+    return ColecoFlashStatus::AllocFailed;
+  }
+
+  size_t written = 0;
+  while (written < fileSize) {
+    size_t toRead = fileSize - written;
+    if (toRead > 8192) toRead = 8192;
+
+    size_t got = fread(buf, 1, toRead, f);
+    if (got == 0) {
+      free(buf);
+      fclose(f);
+      return ColecoFlashStatus::ReadFailed;
+    }
+
+    esp_err_t err = esp_partition_write(part, offset + written, buf, got);
+    if (err != ESP_OK) {
+      free(buf);
+      fclose(f);
+      return ColecoFlashStatus::WriteFailed;
+    }
+
+    written += got;
+    if (progressCb) progressCb(progressTotal, offset + written, progressCtx);
+  }
+
+  free(buf);
+  fclose(f);
+  return ColecoFlashStatus::Ok;
+}
+
+static ColecoFlashStatus copyColecoBundleToPartition(
+    const std::string& romPath,
+    const esp_partition_t* part,
+    size_t* outMappedSize,
+    size_t* outRomOffset,
+    size_t* outRomSize,
+    CopyProgressCallback progressCb,
+    void* progressCtx
+) {
+  if (outMappedSize) *outMappedSize = 0;
+  if (outRomOffset) *outRomOffset = 0;
+  if (outRomSize) *outRomSize = 0;
+  if (!part) return ColecoFlashStatus::WriteFailed;
+
+  const std::string biosPath = colecoBiosPathForRom(romPath);
+  size_t biosSize = 0;
+  size_t romSize = 0;
+  if (!getFileSizeBytes(biosPath.c_str(), &biosSize)) return ColecoFlashStatus::BiosOpenFailed;
+  if (biosSize != COLECO_BIOS_SIZE) return ColecoFlashStatus::BiosSizeInvalid;
+  if (!getFileSizeBytes(romPath.c_str(), &romSize)) return ColecoFlashStatus::RomOpenFailed;
+  if (romSize == 0) return ColecoFlashStatus::RomSizeInvalid;
+
+  const size_t totalSize = COLECO_BIOS_SIZE + romSize;
+  if (totalSize > part->size) return ColecoFlashStatus::TooLarge;
+  if (!eraseRomPartition(part, totalSize)) return ColecoFlashStatus::EraseFailed;
+  if (progressCb) progressCb(totalSize, 0, progressCtx);
+
+  ColecoFlashStatus st = appendFileToPartition(
+      biosPath.c_str(), part, 0, COLECO_BIOS_SIZE, totalSize, progressCb, progressCtx);
+  if (st != ColecoFlashStatus::Ok) return st;
+
+  st = appendFileToPartition(
+      romPath.c_str(), part, COLECO_BIOS_SIZE, romSize, totalSize, progressCb, progressCtx);
+  if (st != ColecoFlashStatus::Ok) return st;
+
+  if (outMappedSize) *outMappedSize = totalSize;
+  if (outRomOffset) *outRomOffset = COLECO_BIOS_SIZE;
+  if (outRomSize) *outRomSize = romSize;
+  EMU_LOG("[COL][BIOS] loaded %s before ROM in XIP bundle (%u + %u bytes)\n",
+          biosPath.c_str(), (unsigned)COLECO_BIOS_SIZE, (unsigned)romSize);
+  return ColecoFlashStatus::Ok;
+}
+
+static const char* colecoFlashStatusText(ColecoFlashStatus st) {
+  switch (st) {
+    case ColecoFlashStatus::BiosOpenFailed: return "Missing coleco.rom";
+    case ColecoFlashStatus::BiosSizeInvalid: return "coleco.rom must be 8192 bytes";
+    case ColecoFlashStatus::RomOpenFailed: return "ROM open failed";
+    case ColecoFlashStatus::RomSizeInvalid: return "Invalid ROM size";
+    case ColecoFlashStatus::TooLarge: return "ROM + BIOS too large";
+    case ColecoFlashStatus::EraseFailed: return "Flash erase failed";
+    case ColecoFlashStatus::AllocFailed: return "Copy buffer failed";
+    case ColecoFlashStatus::ReadFailed: return "File read failed";
+    case ColecoFlashStatus::WriteFailed: return "Flash write failed";
+    case ColecoFlashStatus::Ok:
+    default: return "OK";
+  }
+}
 
 #if defined(CONFIG_BT_ENABLED)
 extern "C" bool btInUse(void) {
@@ -87,6 +229,7 @@ void setup() {
 
   display.topBar("COPYING ROM TO FLASH", false, false);
   display.subMessage("Loading...", 0);
+  auto ext = getRomType(romPath);
   
   // Find the rom partition (SPIFFS)
   const esp_partition_t* romPart = findRomPartition("spiffs");
@@ -99,8 +242,30 @@ void setup() {
   }
 
   // Copy the ROM file to the partition
-  size_t romSize = 0;
-  if (!copyFileToPartition(romPath.c_str(), romPart, &romSize, CardputerView::copyProgress, &display)) {
+  size_t mappedSize = 0;
+  size_t xipRomOffset = 0;
+  size_t xipRomSize = 0;
+  ColecoFlashStatus colecoStatus = ColecoFlashStatus::Ok;
+  bool copiedToFlash = false;
+  if (ext == ROM_TYPE_COLECO) {
+    colecoStatus = copyColecoBundleToPartition(
+        romPath, romPart, &mappedSize, &xipRomOffset, &xipRomSize,
+        CardputerView::copyProgress, &display);
+    copiedToFlash = (colecoStatus == ColecoFlashStatus::Ok);
+  } else {
+    copiedToFlash = copyFileToPartition(
+        romPath.c_str(), romPart, &mappedSize, CardputerView::copyProgress, &display);
+    xipRomSize = mappedSize;
+  }
+
+  if (!copiedToFlash) {
+    if (ext == ROM_TYPE_COLECO && colecoStatus != ColecoFlashStatus::TooLarge) {
+      while (1) {
+        display.topBar("COLECO BIOS ERROR", false, false);
+        display.subMessage(colecoFlashStatusText(colecoStatus), 0);
+        delay(1500);
+      }
+    }
     // User is using the launcher
     if (isLauncherLayout()) {
       // Ask to flash the launcher Game Station partition to unlock full size
@@ -132,7 +297,7 @@ void setup() {
   input.flushInput(10); // flush any input just in case
 
   // Map the ROM partition in XIP
-  if (xip_map_rom_partition("spiffs", romSize) != 0) {
+  if (xip_map_rom_partition("spiffs", mappedSize) != 0) {
     while (1) {
       display.topBar("ERROR", false, false);
       display.subMessage("Map ROM failed", 0);
@@ -141,8 +306,10 @@ void setup() {
   }
   // Register the XIP VFS
   vfs_xip_register();
-  // Check the extension to choose the emulator
-  auto ext = getRomType(romPath);
+  const uint8_t* xipBase = get_rom_ptr();
+  const uint8_t* xipRomPtr = xipBase ? xipBase + xipRomOffset : nullptr;
+  const size_t xipRunSize = xipRomSize ? xipRomSize : get_rom_size();
+  const uint8_t* colecoBiosPtr = (ext == ROM_TYPE_COLECO) ? xipBase : nullptr;
 
   // Show keymapping
   display.topBar("- + SOUND [ ] BRIGHT", false, false);
@@ -200,7 +367,8 @@ void setup() {
       if (ext == ROM_TYPE_GAMEGEAR) mode = SMS_MODE_GG;
       else if (ext == ROM_TYPE_SG1000) mode = SMS_MODE_SG1000;
       else if (ext == ROM_TYPE_COLECO) mode = SMS_MODE_COLECO;
-      run_sms(get_rom_ptr(), get_rom_size(), mode, romName.c_str());
+      run_sms(xipRomPtr, xipRunSize, mode, romName.c_str(),
+              colecoBiosPtr, (ext == ROM_TYPE_COLECO) ? COLECO_BIOS_SIZE : 0);
   }
   else if (ext == ROM_TYPE_NGP) {
       // --- Neo Geo Pocket / Color ---

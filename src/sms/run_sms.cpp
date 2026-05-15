@@ -15,10 +15,9 @@
 #include "sms/save.h"
 #include "share/emu_log_cpp.h"
 
-// WARNING: The real bios is needed for Coleco emulation
-// It is not included in the repo for legal reasons
-// #include "sms/smsplus/coleco_bios.h"
-const unsigned char ColecoVision_BIOS[8192] = {0}; // dummy data as fallback
+// WARNING: The real BIOS is needed for Coleco emulation.
+// It is loaded from coleco.rom next to the selected cartridge and mapped in XIP.
+static const unsigned char ColecoVision_ZeroBIOS[8192] = {0};
 
 static uint8_t map_console_type(SmsConsoleMode mode)
 {
@@ -31,7 +30,8 @@ static uint8_t map_console_type(SmsConsoleMode mode)
   }
 }
 
-void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const char* romName)
+void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const char* romName,
+             const uint8_t* colecoBiosPtr, size_t colecoBiosLen)
 {
   CardputerView display;
   CardputerInput input;
@@ -61,8 +61,9 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
 
   if (sram) memset(sram, 0xFF, 0x8000);
 
-  sms.coleco_bios = (mode == SMS_MODE_COLECO)
-      ? (uint8_t*)ColecoVision_BIOS
+  const bool hasColecoBios = isColeco && colecoBiosPtr && colecoBiosLen >= 8192;
+  sms.coleco_bios = isColeco
+      ? (uint8_t*)(hasColecoBios ? colecoBiosPtr : ColecoVision_ZeroBIOS)
       : nullptr;
 
   // Mapping structures core
@@ -89,13 +90,14 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
   if (isColeco) {
     EMU_LOG("[COL][BOOT] rom=%s ptr=%p len=%u pages8k=%u\n",
             romName ? romName : "(null)", romPtr, (unsigned)romLen, (unsigned)cart.pages);
-    EMU_LOG("[COL][BOOT] buffers video=%p dummy=%p ram=%p sram=%p bios=%p (zero fallback)\n",
-            videoBuf, sms.dummy, sms.ram, sms.sram, sms.coleco_bios);
+    EMU_LOG("[COL][BOOT] buffers video=%p dummy=%p ram=%p sram=%p bios=%p (%s)\n",
+            videoBuf, sms.dummy, sms.ram, sms.sram, sms.coleco_bios,
+            hasColecoBios ? "xip coleco.rom" : "zero fallback");
     EMU_LOG("[COL][BOOT] rom[0..15]=");
     for (size_t i = 0; i < romLen && i < 16; ++i) EMU_LOG(" %02X", romPtr[i]);
     EMU_LOG("\n");
     EMU_LOG("[COL][BOOT] bios[0..15]=");
-    for (size_t i = 0; i < 16; ++i) EMU_LOG(" %02X", ColecoVision_BIOS[i]);
+    for (size_t i = 0; i < 16; ++i) EMU_LOG(" %02X", sms.coleco_bios[i]);
     EMU_LOG("\n");
   }
   

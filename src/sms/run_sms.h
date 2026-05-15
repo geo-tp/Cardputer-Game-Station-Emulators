@@ -15,4 +15,5 @@ enum SmsConsoleMode {
   SMS_MODE_COLECO
 };
 
-void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const char* romName);
+void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const char* romName,
+             const uint8_t* colecoBiosPtr = nullptr, size_t colecoBiosLen = 0);
