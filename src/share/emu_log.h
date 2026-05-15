@@ -1,9 +1,9 @@
 #pragma once
 /* Global log gating for C code.
- * When REMOVE_PRINTF is defined, printf becomes a no-op. */
+ * When REMOVE_PRINTF is defined, printf becomes a no-op unless logs are enabled. */
 #include <stdio.h>
 
-#if defined(REMOVE_PRINTF) && !defined(BENCHMARK_LOGS) && !defined(__cplusplus)
+#if defined(REMOVE_PRINTF) && !defined(BENCHMARK_LOGS) && !defined(WS_LOGS_ENABLED) && !defined(__cplusplus)
   #ifdef printf
     #undef printf
   #endif
