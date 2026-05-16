@@ -28,6 +28,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef NES_DIAG_LOGS
+#include <esp_heap_caps.h>
+#endif
+
 #include "../noftypes.h"
 #include "nes_rom.h"
 #include "nes_mmc.h"
@@ -193,12 +197,36 @@ static int rom_loadrom(FILE *fp, rominfo_t *rominfo)
                     }
                     memset(rominfo->vram, 0, VRAM_LENGTH);
                 }
+#ifdef NES_DIAG_LOGS
+                nofrendo_log_printf("[NES][ROM] XIP prgOff=%ld prg=%u chr=%u rom=%p vrom=%p vram=%p heap=%u largest8=%u\n",
+                                    prg_off,
+                                    (unsigned)need_prg,
+                                    (unsigned)need_chr,
+                                    (void *)rominfo->rom,
+                                    (void *)rominfo->vrom,
+                                    (void *)rominfo->vram,
+                                    (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+                                    (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+#endif
                 return 0;
             }
+#ifdef NES_DIAG_LOGS
+            nofrendo_log_printf("[NES][ROM] XIP unavailable prgOff=%ld xipSize=%u need=%u\n",
+                                prg_off,
+                                (unsigned)xsz,
+                                (unsigned)need_all);
+#endif
         }
     }
 
     /* fallback RAM */
+#ifdef NES_DIAG_LOGS
+    nofrendo_log_printf("[NES][ROM] RAM fallback prg=%u chr=%u heap=%u largest8=%u\n",
+                        (unsigned)(rominfo->rom_banks * ROM_BANK_LENGTH),
+                        (unsigned)(rominfo->vrom_banks * VROM_BANK_LENGTH),
+                        (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+                        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+#endif
     rominfo->rom = mem_alloc(rominfo->rom_banks * ROM_BANK_LENGTH, false);
     if (NULL == rominfo->rom) {
         gui_sendmsg(GUI_RED, "Could not allocate space for ROM image");
@@ -405,6 +433,18 @@ static int rom_getheader(FILE *fp, rominfo_t *rominfo)
    if (99 == rominfo->mapper_number)
       rominfo->flags |= ROM_FLAG_VERSUS;
 
+#ifdef NES_DIAG_LOGS
+   nofrendo_log_printf("[NES][ROM] header prg=%dKB chr=%dKB mapper=%d mirror=%c flags=%02X dirty=%u raw=%02X %02X\n",
+                       rominfo->rom_banks * 16,
+                       rominfo->vrom_banks * 8,
+                       rominfo->mapper_number,
+                       (rominfo->mirror == MIRROR_VERT) ? 'V' : 'H',
+                       (unsigned)rominfo->flags,
+                       (unsigned)header_dirty,
+                       (unsigned)head.rom_type,
+                       (unsigned)head.mapper_hinybble);
+#endif
+
    return 0;
 }
 
@@ -486,6 +526,14 @@ rominfo_t *rom_load(const char *filename, ppu_t *ppu)
    */
    if (rom_allocsram(rominfo))
       goto _fail;
+
+#ifdef NES_DIAG_LOGS
+   nofrendo_log_printf("[NES][ROM] sram=%p bytes=%u heap=%u largest8=%u\n",
+                       (void *)rominfo->sram,
+                       (unsigned)(SRAM_BANK_LENGTH * rominfo->sram_banks),
+                       (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+                       (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+#endif
 
    if (NULL != fp)
       rom_loadtrainer(fp, rominfo);

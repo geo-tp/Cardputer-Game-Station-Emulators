@@ -264,6 +264,12 @@ int osd_init(void)
 #ifdef BENCHMARK_LOGS
     printf("[NES][BENCH] enabled\n");
 #endif
+#ifdef NES_DIAG_LOGS
+    printf("[NES][OSD] init heap=%u largest8=%u largestInternal=%u\n",
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+#endif
 
     if (osd_init_sound()) return -1;
 
@@ -271,6 +277,14 @@ int osd_init(void)
     vidQueue = xQueueCreate(2, sizeof(bitmap_t *));
     xTaskCreatePinnedToCore(&displayTask, "displayTask", 4096, NULL, 3, NULL, 0);
     osd_initinput();
+#ifdef NES_DIAG_LOGS
+    printf("[NES][OSD] ready queue=%p fb=%p bmp=%p heap=%u largest8=%u\n",
+           (void *)vidQueue,
+           (void *)fb,
+           (void *)myBitmap,
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+#endif
     return 0;
 }
 
@@ -289,6 +303,11 @@ int osd_main(int argc, char *argv[])
     (void)argc;
     config.filename = configfilename;
     if (argc > 0 && argv && argv[0]) osd_set_rompath_for_saves(argv[0]);
+#ifdef NES_DIAG_LOGS
+    printf("[NES][OSD] main argc=%d rom=%s\n",
+           argc,
+           (argc > 0 && argv && argv[0]) ? argv[0] : "(null)");
+#endif
     return main_loop(argv[0], system_autodetect);
 }
 
@@ -299,6 +318,12 @@ int osd_installtimer(int frequency, void *func, int funcsize, void *counter, int
     nofrendo_log_printf("Timer install, configTICK_RATE_HZ=%d, freq=%d\n", configTICK_RATE_HZ, frequency);
     nes_timer = xTimerCreate("nes", configTICK_RATE_HZ / frequency, pdTRUE, NULL, (TimerCallbackFunction_t)func);
     xTimerStart(nes_timer, 0);
+#ifdef NES_DIAG_LOGS
+    printf("[NES][OSD] timer freq=%d handle=%p periodTicks=%u\n",
+           frequency,
+           (void *)nes_timer,
+           (unsigned)(configTICK_RATE_HZ / frequency));
+#endif
     return 0;
 }
 

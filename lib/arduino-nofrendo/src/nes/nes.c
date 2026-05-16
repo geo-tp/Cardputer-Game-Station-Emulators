@@ -27,6 +27,10 @@
 #include <string.h>
 #include <stdlib.h>
 
+#ifdef NES_DIAG_LOGS
+#include <esp_heap_caps.h>
+#endif
+
 #include "../noftypes.h"
 #include "../cpu/nes6502.h"
 #include "../log.h"
@@ -51,6 +55,48 @@
 #define NES_SKIP_LIMIT (NES_REFRESH_RATE / 5) /* 12 or 10, depending on PAL/NTSC */
 
 static nes_t nes;
+
+#ifdef NES_DIAG_LOGS
+static unsigned long nes_diag_frames;
+
+static void nes_diag_log_heap(const char *stage)
+{
+   printf("[NES][CORE] %-12s heap=%u largest8=%u largestInternal=%u\n",
+          stage,
+          (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+          (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+          (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+}
+
+static void nes_diag_log_frame(bool draw)
+{
+   nes6502_context cpu_ctx;
+   memset(&cpu_ctx, 0, sizeof(cpu_ctx));
+   if (nes.cpu)
+      nes6502_getcontext(&cpu_ctx);
+
+   nes_diag_frames++;
+   if (nes_diag_frames > 5 && (nes_diag_frames % 60UL) != 0)
+      return;
+
+   printf("[NES][FRAME %lu] draw=%u PC=%04lX A=%02X X=%02X Y=%02X S=%02X P=%02X scan=%d jam=%u irq=%u fiq=%u ticks=%d heap=%u largest8=%u\n",
+          nes_diag_frames,
+          (unsigned)draw,
+          (unsigned long)(cpu_ctx.pc_reg & 0xFFFFU),
+          (unsigned)cpu_ctx.a_reg,
+          (unsigned)cpu_ctx.x_reg,
+          (unsigned)cpu_ctx.y_reg,
+          (unsigned)cpu_ctx.s_reg,
+          (unsigned)cpu_ctx.p_reg,
+          nes.scanline,
+          (unsigned)cpu_ctx.jammed,
+          (unsigned)cpu_ctx.int_pending,
+          (unsigned)nes.fiq_state,
+          nofrendo_ticks,
+          (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+          (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+}
+#endif
 
 /* find out if a file is ours */
 int nes_isourfile(const char *filename)
@@ -369,6 +415,22 @@ void nes_emulate(void)
 {
    int last_ticks, frames_to_render;
 
+#ifdef NES_DIAG_LOGS
+   nes_diag_frames = 0;
+   nes_diag_log_heap("emulate");
+   if (nes.rominfo)
+      printf("[NES][CORE] rom prg=%d chr=%d mapper=%d mirror=%c flags=%02X rom=%p vrom=%p vram=%p sram=%p\n",
+             nes.rominfo->rom_banks,
+             nes.rominfo->vrom_banks,
+             nes.rominfo->mapper_number,
+             (nes.rominfo->mirror == MIRROR_VERT) ? 'V' : 'H',
+             (unsigned)nes.rominfo->flags,
+             (void *)nes.rominfo->rom,
+             (void *)nes.rominfo->vrom,
+             (void *)nes.rominfo->vram,
+             (void *)nes.rominfo->sram);
+#endif
+
    osd_setsound(nes.apu->process);
 
    last_ticks = nofrendo_ticks;
@@ -398,12 +460,18 @@ void nes_emulate(void)
          frames_to_render--;
          nes_renderframe(false);
          system_video(false);
+#ifdef NES_DIAG_LOGS
+         nes_diag_log_frame(false);
+#endif
       }
       else if ((1 == frames_to_render && true == nes.autoframeskip) || false == nes.autoframeskip)
       {
          frames_to_render = 0;
          nes_renderframe(true);
          system_video(true);
+#ifdef NES_DIAG_LOGS
+         nes_diag_log_frame(true);
+#endif
       }
    }
 }
@@ -432,6 +500,32 @@ void nes_reset(int reset_type)
    nes6502_reset();
 
    nes.scanline = 241;
+
+#ifdef NES_DIAG_LOGS
+   nes6502_context cpu_ctx;
+   uint8 *reset_page;
+   unsigned reset_vector;
+   memset(&cpu_ctx, 0, sizeof(cpu_ctx));
+   if (nes.cpu)
+      nes6502_getcontext(&cpu_ctx);
+   reset_page = cpu_ctx.mem_page[RESET_VECTOR >> NES6502_BANKSHIFT];
+   reset_vector = reset_page
+      ? (unsigned)reset_page[RESET_VECTOR & NES6502_BANKMASK]
+        | ((unsigned)reset_page[(RESET_VECTOR + 1) & NES6502_BANKMASK] << 8)
+      : 0xFFFFU;
+   printf("[NES][CORE] reset=%s PC=%04lX vector=%04X S=%02X P=%02X mem0=%p mem6=%p mem7=%p mem8=%p memC=%p memF=%p\n",
+          (HARD_RESET == reset_type) ? "hard" : "soft",
+          (unsigned long)(cpu_ctx.pc_reg & 0xFFFFU),
+          reset_vector,
+          (unsigned)cpu_ctx.s_reg,
+          (unsigned)cpu_ctx.p_reg,
+          (void *)cpu_ctx.mem_page[0],
+          (void *)cpu_ctx.mem_page[6],
+          (void *)cpu_ctx.mem_page[7],
+          (void *)cpu_ctx.mem_page[8],
+          (void *)cpu_ctx.mem_page[12],
+          (void *)cpu_ctx.mem_page[15]);
+#endif
 
    gui_sendmsg(GUI_GREEN, "NES %s",
                (HARD_RESET == reset_type) ? "powered on" : "reset");
@@ -477,10 +571,36 @@ int nes_insertcart(const char *filename, nes_t *machine)
 {
    nes6502_setcontext(machine->cpu);
 
+#ifdef NES_DIAG_LOGS
+   printf("[NES][CART] load %s\n", filename ? filename : "(null)");
+   nes_diag_log_heap("cart start");
+#endif
+
    /* rom file */
    machine->rominfo = rom_load(filename, machine->ppu);
    if (NULL == machine->rominfo)
+   {
+#ifdef NES_DIAG_LOGS
+      printf("[NES][CART] rom_load failed\n");
+#endif
       goto _fail;
+   }
+
+#ifdef NES_DIAG_LOGS
+   printf("[NES][CART] loaded prg=%d chr=%d mapper=%d mirror=%c flags=%02X sramBanks=%d vramBanks=%d rom=%p vrom=%p vram=%p sram=%p\n",
+          machine->rominfo->rom_banks,
+          machine->rominfo->vrom_banks,
+          machine->rominfo->mapper_number,
+          (machine->rominfo->mirror == MIRROR_VERT) ? 'V' : 'H',
+          (unsigned)machine->rominfo->flags,
+          machine->rominfo->sram_banks,
+          machine->rominfo->vram_banks,
+          (void *)machine->rominfo->rom,
+          (void *)machine->rominfo->vrom,
+          (void *)machine->rominfo->vram,
+          (void *)machine->rominfo->sram);
+   nes_diag_log_heap("cart rom");
+#endif
 
    /* map cart's SRAM to CPU $6000-$7FFF */
    if (machine->rominfo->sram)
@@ -492,7 +612,16 @@ int nes_insertcart(const char *filename, nes_t *machine)
    /* mapper */
    machine->mmc = mmc_create(machine->rominfo);
    if (NULL == machine->mmc)
+   {
+#ifdef NES_DIAG_LOGS
+      printf("[NES][CART] mmc_create failed mapper=%d\n", machine->rominfo->mapper_number);
+#endif
       goto _fail;
+   }
+
+#ifdef NES_DIAG_LOGS
+   printf("[NES][CART] mmc=%p intf=%p\n", (void *)machine->mmc, (void *)machine->mmc->intf);
+#endif
 
    /* if there's VRAM, let the PPU know */
    if (NULL != machine->rominfo->vram)
@@ -505,9 +634,15 @@ int nes_insertcart(const char *filename, nes_t *machine)
    nes_setcontext(machine);
 
    nes_reset(HARD_RESET);
+#ifdef NES_DIAG_LOGS
+   nes_diag_log_heap("cart ready");
+#endif
    return 0;
 
 _fail:
+#ifdef NES_DIAG_LOGS
+   nes_diag_log_heap("cart fail");
+#endif
    nes_destroy(&machine);
    return -1;
 }
@@ -525,6 +660,9 @@ nes_t *nes_create(void)
       return NULL;
 
    memset(machine, 0, sizeof(nes_t));
+#ifdef NES_DIAG_LOGS
+   nes_diag_log_heap("create nes");
+#endif
 
    /* bitmap */
    /* 8 pixel overdraw */
@@ -542,17 +680,26 @@ nes_t *nes_create(void)
       goto _fail;
 
    memset(machine->cpu, 0, sizeof(nes6502_context));
+#ifdef NES_DIAG_LOGS
+   nes_diag_log_heap("create cpu");
+#endif
 
    machine->writehandler = NOFRENDO_MALLOC(sizeof(nes6502_memwrite) * MAX_MEM_HANDLERS);
    machine->readhandler = NOFRENDO_MALLOC(sizeof(nes6502_memread) * MAX_MEM_HANDLERS);
 
    if (NULL == machine->writehandler || NULL == machine->readhandler)
       goto _fail;
+#ifdef NES_DIAG_LOGS
+   nes_diag_log_heap("create hdlr");
+#endif
 
    /* allocate 2kB RAM */
    machine->cpu->mem_page[0] = NOFRENDO_MALLOC(NES_RAMSIZE);
    if (NULL == machine->cpu->mem_page[0])
       goto _fail;
+#ifdef NES_DIAG_LOGS
+   nes_diag_log_heap("create ram");
+#endif
 
    /* point all pages at NULL for now */
    for (i = 1; i < NES6502_NUMBANKS; i++)
@@ -567,6 +714,9 @@ nes_t *nes_create(void)
 
    if (NULL == machine->apu)
       goto _fail;
+#ifdef NES_DIAG_LOGS
+   nes_diag_log_heap("create apu");
+#endif
 
    /* set the IRQ routines */
    machine->apu->irq_callback = nes_irq;
@@ -576,6 +726,9 @@ nes_t *nes_create(void)
    machine->ppu = ppu_create();
    if (NULL == machine->ppu)
       goto _fail;
+#ifdef NES_DIAG_LOGS
+   nes_diag_log_heap("create ppu");
+#endif
 
    machine->poweroff = false;
    machine->pause = false;
@@ -583,6 +736,9 @@ nes_t *nes_create(void)
    return machine;
 
 _fail:
+#ifdef NES_DIAG_LOGS
+   nes_diag_log_heap("create fail");
+#endif
    nes_destroy(&machine);
    return NULL;
 }
