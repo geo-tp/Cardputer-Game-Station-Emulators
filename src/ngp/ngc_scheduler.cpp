@@ -22,6 +22,20 @@ extern volatile unsigned g_frame_ready;
 #define NGC_VIDEO_CORE  0
 #endif
 
+#ifndef NGC_INPUT_STACK
+#define NGC_INPUT_STACK 2048
+#endif
+#ifndef NGC_AUDIO_STACK
+#define NGC_AUDIO_STACK 2048
+#endif
+#ifndef NGC_VIDEO_STACK
+#ifdef NGP_TRACE_LOGS
+#define NGC_VIDEO_STACK 4096
+#else
+#define NGC_VIDEO_STACK 2048
+#endif
+#endif
+
 static void taskInput(void* arg)
 {
   (void)arg;
@@ -61,9 +75,9 @@ extern "C" void ngc_scheduler_start(void)
   if (s_running) return;
   s_running = true;
 
-  xTaskCreatePinnedToCore(taskInput, "ngp_input", 2048, nullptr, 6, &s_taskInput, NGC_INPUT_CORE);
-  xTaskCreatePinnedToCore(taskAudio, "ngp_audio", 2048, nullptr, 6, &s_taskAudio, NGC_AUDIO_CORE);
-  xTaskCreatePinnedToCore(taskVideo, "ngp_video", 2048, nullptr, 6, &s_taskVideo, NGC_VIDEO_CORE);
+  xTaskCreatePinnedToCore(taskInput, "ngp_input", NGC_INPUT_STACK, nullptr, 6, &s_taskInput, NGC_INPUT_CORE);
+  xTaskCreatePinnedToCore(taskAudio, "ngp_audio", NGC_AUDIO_STACK, nullptr, 6, &s_taskAudio, NGC_AUDIO_CORE);
+  xTaskCreatePinnedToCore(taskVideo, "ngp_video", NGC_VIDEO_STACK, nullptr, 6, &s_taskVideo, NGC_VIDEO_CORE);
 }
 
 extern "C" void ngc_scheduler_stop(void)
