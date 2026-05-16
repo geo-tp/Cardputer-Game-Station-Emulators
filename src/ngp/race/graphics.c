@@ -63,6 +63,10 @@ static MYSPRITELINE *mySprPriC0 = NULL;
 static MYSPRITELINE *mySprPriBlock = NULL;
 static MYSPRITE *mySprites = NULL;
 
+#ifdef NGP_TRACE_LOGS
+static unsigned s_ngp_trace_gfx_frame = 0;
+#endif
+
 /* NGP specific: precalculated pattern structures (nibbles) */
 static const unsigned char mypatterns[256*4] =
 {
@@ -179,6 +183,16 @@ void palette_init16(DWORD dwRBitMask, DWORD dwGBitMask, DWORD dwBBitMask)
             }
             break;
     }
+
+#ifdef NGP_TRACE_LOGS
+    if (totalpalette) {
+        printf("[NGP][GFX] palette_init16 masks R=%08lX G=%08lX B=%08lX totalpal=%p sample=%04X/%04X/%04X/%04X/%04X\n",
+               (unsigned long)dwRBitMask, (unsigned long)dwGBitMask, (unsigned long)dwBBitMask,
+               totalpalette,
+               totalpalette[0x000], totalpalette[0x00F], totalpalette[0x0F0],
+               totalpalette[0xF00], totalpalette[0xFFF]);
+    }
+#endif
 }
 
 void graphicsSetDarkFilterLevel(unsigned filterLevel)
@@ -666,6 +680,28 @@ void myGraphicsBlitLine(unsigned char render)
                 // sprites prio 0xC0
                 drawSprites(draw, mySprPriC0->refs, mySprPriC0->count, x0, x1);
             }
+
+#ifdef NGP_TRACE_LOGS
+            if (s_ngp_trace_gfx_frame < 5 || ((s_ngp_trace_gfx_frame % 60u) == 0u)) {
+                if (y == 0u || y == 76u || y == 151u) {
+                    printf("[NGP][LINE f=%u y=%u] render=%u bw=%d winEmpty=%d x=%d..%d bg=%04X oow=%04X pri=%u/%u/%u pix=%04X/%04X/%04X pal=%04X/%04X tileF=%04X tileB=%04X scrollF=%u,%u scrollB=%u,%u\n",
+                           s_ngp_trace_gfx_frame, y, (unsigned)render, is_bw, win_empty,
+                           x0, x1, bgcol, OOWCol,
+                           mySprPri40 ? mySprPri40->count : 0,
+                           mySprPri80 ? mySprPri80->count : 0,
+                           mySprPriC0 ? mySprPriC0->count : 0,
+                           draw[0], draw[80], draw[159],
+                           myPalettes ? myPalettes[0] : 0xFFFF,
+                           myPalettes ? myPalettes[1] : 0xFFFF,
+                           tile_table_front ? tile_table_front[0] : 0xFFFF,
+                           tile_table_back ? tile_table_back[0] : 0xFFFF,
+                           scrollFrontX ? *scrollFrontX : 0xFF,
+                           scrollFrontY ? *scrollFrontY : 0xFF,
+                           scrollBackX ? *scrollBackX : 0xFF,
+                           scrollBackY ? *scrollBackY : 0xFF);
+                }
+            }
+#endif
         }
 
         // fin zone visible
@@ -674,6 +710,14 @@ void myGraphicsBlitLine(unsigned char render)
             tlcsMemWriteB(0x00008010, (uint8_t)(ifr | 0x40));
             // graphics_paint(render);
             g_frame_ready = 1;
+#ifdef NGP_TRACE_LOGS
+            if (s_ngp_trace_gfx_frame < 5 || ((s_ngp_trace_gfx_frame % 60u) == 0u)) {
+                printf("[NGP][GFXFRAME %u] ready=1 ifr=%02X->%02X scan=%u draw=%p\n",
+                       s_ngp_trace_gfx_frame, ifr, tlcsMemReadB(0x00008010),
+                       scanlineY ? *scanlineY : 0xFF, drawBuffer);
+            }
+            s_ngp_trace_gfx_frame++;
+#endif
         }
 
         *scanlineY = (uint8_t)(y + 1);
@@ -751,6 +795,13 @@ BOOL graphics_init(void)
             *scanlineY = 0;
             break;
     }
+
+#ifdef NGP_TRACE_LOGS
+    printf("[NGP][GFX] init machine=%d draw=%p totalpal=%p myPal=%p palettes=%p sprBlock=%p sprites=%p scan=%p frame0=%p frame1=%p bgSel=%p palTable=%p bwPal=%p\n",
+           m_emuInfo.machine, drawBuffer, totalpalette, myPalettes, palettes,
+           mySprPriBlock, mySprites, scanlineY, frame0Pri, frame1Pri,
+           bgSelect, palette_table, bw_palette_table);
+#endif
 
     return TRUE;
 }

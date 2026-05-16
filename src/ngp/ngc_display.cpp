@@ -4,6 +4,7 @@
 #include <M5Cardputer.h>
 #include <string.h>
 #include <atomic>
+#include "share/emu_log_cpp.h"
 
 // Framebuffer NGPC 160x152
 int ngpZoomPercent = 100;
@@ -68,6 +69,17 @@ extern "C" void ngc_display_init(void)
 
   M5.Display.setSwapBytes(true);
   M5.Display.fillScreen(TFT_BLACK);
+
+#ifdef NGP_TRACE_LOGS
+  EMU_LOG("[NGP][DISP] init fb=%p line=%p lutXFull=%p lutYFull=%p lutX4x3=%p",
+          s_fb, s_linebuf_panel, s_lut_x_full, s_lut_y_full, s_lut_x_4x3);
+#ifdef NGP_ONLY_RENDER_VISIBLE_LINES
+  EMU_LOG(" lutYRender=%p", s_lut_y_render);
+#endif
+  EMU_LOG(" heap=%u largest8=%u\n",
+          (unsigned)heap_caps_get_free_size(MALLOC_CAP_DEFAULT),
+          (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+#endif
 }
 
 extern "C" void ngc_display_set_parity(bool odd) {
@@ -114,6 +126,24 @@ static void build_scale_luts()
 #endif
 
   s_lut_ready = true;
+
+#ifdef NGP_TRACE_LOGS
+#ifdef NGP_ONLY_RENDER_VISIBLE_LINES
+  int visibleLines = 0;
+  for (int y = 0; y < srcH; y++) {
+    if (s_lut_y_render[y]) visibleLines++;
+  }
+#else
+  const int visibleLines = srcH;
+#endif
+  EMU_LOG("[NGP][DISP] luts mode=%s panel=%dx%d src=%dx%d visibleLines=%d y0=%u yMid=%u yLast=%u x0=%u xMid=%u xLast=%u\n",
+          ngpFullscreen ? "fullscreen" : "4:3",
+          panelW, panelH, srcW, srcH, visibleLines,
+          (unsigned)s_lut_y_full[0], (unsigned)s_lut_y_full[panelH / 2],
+          (unsigned)s_lut_y_full[panelH - 1],
+          (unsigned)(s_lut_x_full[0] >> 1), (unsigned)(s_lut_x_full[panelW / 2] >> 1),
+          (unsigned)(s_lut_x_full[panelW - 1] >> 1));
+#endif
 }
 
 //static inline IRAM_ATTR void paint_fullscreen_stretch()
@@ -244,6 +274,23 @@ extern "C" IRAM_ATTR void graphics_paint(unsigned char render)
 {
   if (!render || !drawBuffer) return;
   if (!s_lut_ready) build_scale_luts();
+
+#ifdef NGP_TRACE_LOGS
+  const unsigned paintNo = g_frame_counter + 1;
+  if (paintNo <= 5 || (paintNo % 60) == 0) {
+    const uint16_t raw0 = drawBuffer[0];
+    const uint16_t raw1 = drawBuffer[80];
+    const uint16_t raw2 = drawBuffer[(size_t)76 * NGPC_W + 80];
+    const uint16_t raw3 = drawBuffer[(size_t)(NGPC_H - 1) * NGPC_W + (NGPC_W - 1)];
+    const uint16_t lcd0 = (totalpalette && raw0 < 4096) ? totalpalette[raw0] : raw0;
+    const uint16_t lcd1 = (totalpalette && raw1 < 4096) ? totalpalette[raw1] : raw1;
+    const uint16_t lcd2 = (totalpalette && raw2 < 4096) ? totalpalette[raw2] : raw2;
+    EMU_LOG("[NGP][PAINT %u] render=%u mode=%s parity=%u fb=%p totalpal=%p raw=%04X/%04X/%04X/%04X lcd=%04X/%04X/%04X ready=%u\n",
+            paintNo, (unsigned)render, ngpFullscreen ? "fullscreen" : "4:3",
+            (unsigned)s_interlace_parity, drawBuffer, totalpalette,
+            raw0, raw1, raw2, raw3, lcd0, lcd1, lcd2, (unsigned)g_frame_ready);
+  }
+#endif
   
   if (s_lastScreenMode && !ngpFullscreen) {
     M5.Display.fillScreen(TFT_BLACK);
@@ -262,4 +309,6 @@ extern "C" IRAM_ATTR void graphics_paint(unsigned char render)
   // alternate
    s_interlace_parity = !s_interlace_parity; // parity is set by tlcs_execute() if using NGP_HW_INTERLACED
 #endif
+
+  g_frame_counter++;
 }

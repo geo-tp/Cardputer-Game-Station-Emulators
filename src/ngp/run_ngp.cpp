@@ -30,6 +30,7 @@ extern "C" unsigned int gen_regsPC;
 #define tlcsPc gen_regsPC
 extern EMUINFO m_emuInfo;
 extern int tipo_consola;
+extern uint16_t *totalpalette;
 __attribute__((weak)) void tlcs_reset(void) {}
 
 unsigned char *rasterY = 0;
@@ -67,6 +68,108 @@ void audio_dac_init(void);
 int Cz80_allocate_flag_tables(void);
 
 }
+
+#ifdef NGP_TRACE_LOGS
+#define NGP_TRACE(...) EMU_LOG(__VA_ARGS__)
+
+static uint8_t ngp_trace_u8(const unsigned char* p)
+{
+  return p ? *p : 0xFF;
+}
+
+static uint16_t ngp_trace_u16(const unsigned short* p)
+{
+  return p ? *p : 0xFFFF;
+}
+
+static void ngp_trace_heap(const char* stage)
+{
+  NGP_TRACE("[NGP][HEAP] %-14s heap=%u largest8=%u largestInternal=%u\n",
+            stage,
+            (unsigned)heap_caps_get_free_size(MALLOC_CAP_DEFAULT),
+            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+}
+
+static void ngp_trace_rom(const uint8_t* rom_base, size_t rom_size, const char* rom_name, int machine)
+{
+  NGP_TRACE("[NGP][BOOT] rom=%s ptr=%p len=%u machine=%d\n",
+            rom_name ? rom_name : "(null)", rom_base, (unsigned)rom_size, machine);
+  if (rom_base && rom_size >= 0x30) {
+    NGP_TRACE("[NGP][BOOT] rom[20..2F]= %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
+              rom_base[0x20], rom_base[0x21], rom_base[0x22], rom_base[0x23],
+              rom_base[0x24], rom_base[0x25], rom_base[0x26], rom_base[0x27],
+              rom_base[0x28], rom_base[0x29], rom_base[0x2A], rom_base[0x2B],
+              rom_base[0x2C], rom_base[0x2D], rom_base[0x2E], rom_base[0x2F]);
+  }
+}
+
+static void ngp_trace_vdp(const char* stage)
+{
+  const uint8_t lcd = tlcsMemReadB(0x00004000);
+  const uint8_t irq = tlcsMemReadB(0x00008000);
+  const uint8_t ifr = tlcsMemReadB(0x00008010);
+  const uint8_t color = tlcsMemReadB(0x00006F91);
+
+  NGP_TRACE("[NGP][VDP] %-14s PC=%06X LCD=0x%02X IRQ=0x%02X IFR=0x%02X scan=%u raster=%u color=0x%02X finscan=%d machine=%d\n",
+            stage, (unsigned)tlcsPc, lcd, irq, ifr,
+            ngp_trace_u8(scanlineY), ngp_trace_u8(rasterY), color, finscan, m_emuInfo.machine);
+  NGP_TRACE("[NGP][VDP] ptrs sprite=%p pattern=%p front=%p back=%p pal=%p bwPal=%p bg=%p oow=%p draw=%p totalpal=%p\n",
+            sprite_table, pattern_table, tile_table_front, tile_table_back,
+            palette_table, bw_palette_table, bgTable, oowTable, drawBuffer, totalpalette);
+  NGP_TRACE("[NGP][VDP] regs win=(%u,%u %ux%u) scrollF=(%u,%u) scrollB=(%u,%u) scrollS=(%u,%u) bgSel=0x%02X oowSel=0x%02X f0=0x%02X f1=0x%02X\n",
+            ngp_trace_u8(wndTopLeftX), ngp_trace_u8(wndTopLeftY),
+            ngp_trace_u8(wndSizeX), ngp_trace_u8(wndSizeY),
+            ngp_trace_u8(scrollFrontX), ngp_trace_u8(scrollFrontY),
+            ngp_trace_u8(scrollBackX), ngp_trace_u8(scrollBackY),
+            ngp_trace_u8(scrollSpriteX), ngp_trace_u8(scrollSpriteY),
+            ngp_trace_u8(bgSelect), ngp_trace_u8(oowSelect),
+            ngp_trace_u8(frame0Pri), ngp_trace_u8(frame1Pri));
+
+  if (palette_table) {
+    NGP_TRACE("[NGP][PAL] raw=%04X %04X %04X %04X %04X %04X %04X %04X\n",
+              palette_table[0], palette_table[1], palette_table[2], palette_table[3],
+              palette_table[4], palette_table[5], palette_table[6], palette_table[7]);
+  }
+  if (bgTable) {
+    NGP_TRACE("[NGP][BG] table=%04X %04X %04X %04X tileF=%04X %04X tileB=%04X %04X pattern=%04X %04X\n",
+              bgTable[0], bgTable[1], bgTable[2], bgTable[3],
+              ngp_trace_u16(tile_table_front), ngp_trace_u16(tile_table_front ? tile_table_front + 1 : nullptr),
+              ngp_trace_u16(tile_table_back), ngp_trace_u16(tile_table_back ? tile_table_back + 1 : nullptr),
+              ngp_trace_u16(patterns), ngp_trace_u16(patterns ? patterns + 1 : nullptr));
+  }
+  if (drawBuffer) {
+    NGP_TRACE("[NGP][FB] pix=%04X %04X %04X %04X %04X\n",
+              drawBuffer[0], drawBuffer[1], drawBuffer[80],
+              drawBuffer[(size_t)76 * 160 + 80], drawBuffer[(size_t)151 * 160 + 159]);
+  }
+}
+
+static void ngp_trace_frame(unsigned long frame, uint32_t emuUs)
+{
+  const uint16_t pal0 = palette_table ? palette_table[0] : 0xFFFF;
+  const uint16_t pal1 = palette_table ? palette_table[1] : 0xFFFF;
+  const uint16_t pix0 = drawBuffer ? drawBuffer[0] : 0xFFFF;
+  const uint16_t pix1 = drawBuffer ? drawBuffer[80] : 0xFFFF;
+  const uint16_t pix2 = drawBuffer ? drawBuffer[(size_t)76 * 160 + 80] : 0xFFFF;
+
+  NGP_TRACE("[NGP][FRAME %lu] PC=%06X us=%u scan=%u ready=%u painted=%u LCD=%02X IRQ=%02X IFR=%02X win=%u,%u,%u,%u bg=%02X f0=%02X f1=%02X pal=%04X/%04X pix=%04X/%04X/%04X scrollF=%u,%u scrollB=%u,%u\n",
+            frame, (unsigned)tlcsPc, (unsigned)emuUs,
+            ngp_trace_u8(scanlineY), (unsigned)g_frame_ready, (unsigned)g_frame_counter,
+            tlcsMemReadB(0x00004000), tlcsMemReadB(0x00008000), tlcsMemReadB(0x00008010),
+            ngp_trace_u8(wndTopLeftX), ngp_trace_u8(wndTopLeftY),
+            ngp_trace_u8(wndSizeX), ngp_trace_u8(wndSizeY),
+            ngp_trace_u8(bgSelect), ngp_trace_u8(frame0Pri), ngp_trace_u8(frame1Pri),
+            pal0, pal1, pix0, pix1, pix2,
+            ngp_trace_u8(scrollFrontX), ngp_trace_u8(scrollFrontY),
+            ngp_trace_u8(scrollBackX), ngp_trace_u8(scrollBackY));
+}
+#else
+#define NGP_TRACE(...) ((void)0)
+static void ngp_trace_heap(const char*) {}
+static void ngp_trace_rom(const uint8_t*, size_t, const char*, int) {}
+static void ngp_trace_vdp(const char*) {}
+#endif
 
 static void set_defaults_after_boot(void)
 {
@@ -127,9 +230,13 @@ static void map_vdp_tables_full()
 
 void run_ngp(const uint8_t* rom_base, size_t rom_size, const char* rom_name, int machine)
 {
+  ngp_trace_heap("entry");
+  ngp_trace_rom(rom_base, rom_size, rom_name, machine);
+
   // Load ROM
   ngp_mem_set_rom(rom_base, rom_size);
   setFlashSize(rom_size);
+  ngp_trace_heap("rom mapped");
 
   // Sys info
   m_emuInfo.machine = machine;
@@ -139,15 +246,19 @@ void run_ngp(const uint8_t* rom_base, size_t rom_size, const char* rom_name, int
   // Core init
   Cz80_allocate_flag_tables();
   ngp_mem_init();
+  ngp_trace_heap("mem init");
   ngc_save_init(rom_name);
   ngc_save_load();
+  ngp_trace_heap("save load");
 
   // Map VRAM/regs
   map_vdp_tables_full();
+  ngp_trace_vdp("tables mapped");
 
   // default BG palette + enable
   if (bgTable)   bgTable[0] = 0xFFFF;
   if (bgSelect) *bgSelect |= 0x80;  // enable bgTable[index]
+  ngp_trace_vdp("bg default");
 
   // CPU
   tlcs_init();
@@ -157,10 +268,13 @@ void run_ngp(const uint8_t* rom_base, size_t rom_size, const char* rom_name, int
 
   // Flags post boot
   set_defaults_after_boot();
+  ngp_trace_vdp("boot defaults");
 
   // Init video
   ngc_display_init();
   graphics_init();
+  ngp_trace_heap("video init");
+  ngp_trace_vdp("video init");
 
   // Fullscreen si vide
   if (wndTopLeftX && wndTopLeftY && wndSizeX && wndSizeY) {
@@ -176,6 +290,7 @@ void run_ngp(const uint8_t* rom_base, size_t rom_size, const char* rom_name, int
 
   // Master IE (VBlank/HBlank)
   tlcsMemWriteB(0x00004000, tlcsMemReadB(0x00004000) | 0xC0);
+  ngp_trace_vdp("lcd forced");
 
   // Fin ecran selon rom
   finscan = 198;
@@ -187,6 +302,8 @@ void run_ngp(const uint8_t* rom_base, size_t rom_size, const char* rom_name, int
   ngc_sound_frame();
   ngc_input_init();
   ngc_scheduler_start();
+  ngp_trace_heap("tasks start");
+  ngp_trace_vdp("run start");
 
   // Go
   EMU_LOG("[NGPC_RUN] entering ngpc_run() ... m_bIsActive=%d\n", m_bIsActive);
@@ -202,6 +319,7 @@ void run_ngp(const uint8_t* rom_base, size_t rom_size, const char* rom_name, int
 
   unsigned long status_last = millis();
   unsigned long frames = 0;
+  unsigned long total_frames = 0;
   unsigned long frame_time_total = 0;
   unsigned long frame_time_min = ULONG_MAX;
   unsigned long frame_time_max = 0;
@@ -241,6 +359,12 @@ void run_ngp(const uint8_t* rom_base, size_t rom_size, const char* rom_name, int
       
       // Log framerate and do save tick
       frames++;
+      total_frames++;
+#ifdef NGP_TRACE_LOGS
+      if (total_frames <= 5 || (total_frames % 60) == 0) {
+        ngp_trace_frame(total_frames, emuUs);
+      }
+#endif
       if (millis() - status_last >= 2000)
       {
           ngc_save_tick();
