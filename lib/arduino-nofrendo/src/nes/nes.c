@@ -321,6 +321,11 @@ void nes_setfiq(uint8 value)
 {
    nes.fiq_state = value;
    nes.fiq_cycles = (int)NES_FIQ_PERIOD;
+   if (value & 0x40)
+   {
+      nes.fiq_occurred = false;
+      nes6502_clear_irq_pending();
+   }
 }
 
 static void nes_checkfiq(int cycles)
