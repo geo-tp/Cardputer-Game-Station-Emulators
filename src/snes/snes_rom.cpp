@@ -62,6 +62,7 @@ static const char* const kAltGameTitles[] =
     "X-MEN",
     "SPAWN",
     "WOLVERINE RAGE",
+    "X-KALIBER 2097",
     "CHRONO TRIGGER",
     "CYBERNATOR",
     "POCKY ROCKY",
