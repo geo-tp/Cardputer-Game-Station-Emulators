@@ -302,20 +302,29 @@ extern "C" void snes_display_submit_line(uint32_t y,
 
 // ===================== NO TASK VERSION =====================
 
+static bool s_direct_spi_active = false;
+
 extern "C" void snes_display_init(void)
 {
     M5Cardputer.Display.setSwapBytes(true);
     M5Cardputer.Display.fillScreen(TFT_BLACK);
+    s_direct_spi_active = false;
 }
 
 extern "C" void snes_display_start(void)
 {
-    M5Cardputer.Display.startWrite();
+    if (!s_direct_spi_active) {
+        M5Cardputer.Display.startWrite();
+        s_direct_spi_active = true;
+    }
 }
 
 extern "C" void snes_display_stop(void)
 {
-    M5Cardputer.Display.endWrite();
+    if (s_direct_spi_active) {
+        M5Cardputer.Display.endWrite();
+        s_direct_spi_active = false;
+    }
 }
 
 extern "C" void snes_display_submit_line(uint32_t y,
@@ -324,6 +333,11 @@ extern "C" void snes_display_submit_line(uint32_t y,
 {
     if (!pixels) return;
     if (y >= LCD_H) return; 
+
+    if (!s_direct_spi_active) {
+        M5Cardputer.Display.startWrite();
+        s_direct_spi_active = true;
+    }
 
     if (width > SNES_WIDTH) width = SNES_WIDTH;
 
@@ -357,12 +371,23 @@ extern "C" void snes_display_submit_line(uint32_t y,
 
 extern "C" void snes_display_wake(void)
 {
+#ifndef SNES_NO_THREADED_DISPLAY
     if (s_task) {
         xTaskNotify(s_task, 0, eNoAction);
     }
+#else
+    if (s_direct_spi_active) {
+        M5Cardputer.Display.endWrite();
+        s_direct_spi_active = false;
+    }
+#endif
 }
 
 extern "C" bool snes_display_is_spi_released(void)
 {
+#ifndef SNES_NO_THREADED_DISPLAY
     return s_spi_released_for_save;
+#else
+    return !s_direct_spi_active;
+#endif
 }

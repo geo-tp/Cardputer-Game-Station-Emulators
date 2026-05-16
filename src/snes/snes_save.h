@@ -4,7 +4,6 @@
 extern "C" {
 #endif
 
-bool snes_save_alloc_sram(void);
 void snes_save_prepare_sram(void);
 void snes_save_init(const char* romPathOrName);
 void snes_save_load(void);

@@ -32,6 +32,7 @@ static TickType_t g_first_dirty = 0;
 static TickType_t g_last_save   = 0;
 static uint32_t   g_last_hash   = 0;
 static bool       g_hash_valid  = false;
+static size_t     g_sram_alloc_size = 0;
 
 #ifndef SNES_NO_THREADED_SAVE
 static TaskHandle_t   g_task        = nullptr;
@@ -84,61 +85,68 @@ static uint32_t hash_sram(const uint8_t* data, size_t size) {
 
 /* ======================= SRAM setup ===================== */
 
-extern "C" bool snes_save_alloc_sram(void) {
-  if (Memory.SRAM != NULL) {
-    EMU_LOG("[SNES][SRAM] already allocated (%u bytes max)\n",
-           (unsigned)SNES_SRAM_MAX_BYTES);
-    return true;
-  }
-
-  Memory.SRAM = (uint8_t*)calloc(1, SNES_SRAM_MAX_BYTES);
-  if (Memory.SRAM == NULL) {
-    EMU_LOG("[SNES][SRAM] Alloc failed for %u bytes\n",
-           (unsigned)SNES_SRAM_MAX_BYTES);
-    Memory.SRAMSize = 0;
-    Memory.SRAMMask = 0;
-    g_last_hash = 0;
-    g_hash_valid = false;
-    return false;
-  }
-
+static void reset_sram_tracking(void) {
   Memory.SRAMSize = 0;
   Memory.SRAMMask = 0;
   g_last_hash = 0;
   g_hash_valid = false;
+}
 
-  EMU_LOG("[SNES][SRAM] Allocated max buffer: %u bytes\n",
-         (unsigned)SNES_SRAM_MAX_BYTES);
+static void release_sram_buffer(void) {
+  if (Memory.SRAM) {
+    free(Memory.SRAM);
+    Memory.SRAM = NULL;
+  }
+  g_sram_alloc_size = 0;
+  reset_sram_tracking();
+}
+
+static bool snes_save_alloc_sram(size_t sram_bytes) {
+  if (sram_bytes == 0 || sram_bytes > SNES_SRAM_MAX_BYTES) {
+    return false;
+  }
+
+  if (Memory.SRAM && g_sram_alloc_size >= sram_bytes) {
+    memset(Memory.SRAM, 0, sram_bytes);
+    return true;
+  }
+
+  release_sram_buffer();
+
+  Memory.SRAM = (uint8_t*)calloc(1, sram_bytes);
+  if (Memory.SRAM == NULL) {
+    EMU_LOG("[SNES][SRAM] Alloc failed for %u bytes\n",
+           (unsigned)sram_bytes);
+    reset_sram_tracking();
+    return false;
+  }
+
+  g_sram_alloc_size = sram_bytes;
+
+  EMU_LOG("[SNES][SRAM] allocated: %u bytes\n", (unsigned)sram_bytes);
   return true;
 }
 
 extern "C" void snes_save_prepare_sram(void) {
   uint32_t sram_bytes = 0;
+  const uint8_t sram_size_code = Memory.SRAMSize;
 
-  if (Memory.SRAMSize > 0) {
-    sram_bytes = ((uint32_t)1 << (Memory.SRAMSize + 3)) * 128;
-  }
-
-  if (Memory.SRAM == NULL) {
-    EMU_LOG("[SNES][SRAM] prepare failed: buffer not allocated\n");
-    Memory.SRAMSize = 0;
-    Memory.SRAMMask = 0;
-    g_last_hash = 0;
-    g_hash_valid = false;
-    return;
+  if (sram_size_code > 0) {
+    sram_bytes = ((uint32_t)1 << (sram_size_code + 3)) * 128;
   }
 
   if (sram_bytes == 0 || sram_bytes > SNES_SRAM_MAX_BYTES) {
     EMU_LOG("[SNES][SRAM] disabled: requested %u bytes\n", (unsigned)sram_bytes);
-    Memory.SRAMSize = 0;
-    Memory.SRAMMask = 0;
-    g_last_hash = 0;
-    g_hash_valid = false;
+    release_sram_buffer();
     return;
   }
 
-  memset(Memory.SRAM, 0, sram_bytes);
+  if (!snes_save_alloc_sram(sram_bytes)) {
+    release_sram_buffer();
+    return;
+  }
 
+  Memory.SRAMSize = sram_size_code;
   Memory.SRAMMask = sram_bytes - 1;
   g_last_hash = hash_sram(Memory.SRAM, sram_bytes);
   g_hash_valid = true;

@@ -288,10 +288,6 @@ bool snes_init()
     }
     snes_log_heap_step("memory");
 
-    if (!snes_save_alloc_sram())
-        EMU_LOG("[SNES] SRAM allocation failed\n");
-    snes_log_heap_step("sram");
-
     if (!S9xInitMap())
     {
         EMU_LOG("[SNES] S9xInitMap failed\n");
@@ -380,6 +376,7 @@ void run_snes_default(const uint8_t* rom, size_t romSize, const char* romName)
     }
 
     snes_save_prepare_sram();
+    snes_log_heap_step("sram");
     snes_save_init(romName);
     snes_save_load();
 
@@ -484,6 +481,7 @@ void run_snes_alt(const uint8_t* rom, size_t romSize, const char* romName)
     }
 
     snes_save_prepare_sram();
+    snes_log_heap_step("sram");
     snes_save_init(romName);
     snes_save_load();
 
@@ -552,6 +550,11 @@ void run_snes_alt(const uint8_t* rom, size_t romSize, const char* romName)
 
 void run_snes(const uint8_t* rom, size_t romSize, const char* romName)
 {
+#ifdef SNES_LOGS
+    printf("[SNES][BOOT] run_snes entered rom=%s ptr=%p size=%zu\n",
+           romName ? romName : "(null)", rom, romSize);
+#endif
+
     const bool alt = isAltGame(rom, romSize);
 
     char title[32];
