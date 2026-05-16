@@ -214,6 +214,10 @@ extern "C" void snes_display_start()
     );
 
     if (ok != pdPASS) {
+        EMU_LOG("[SNES-DISP] task create failed (stack=%u heap=%u largest8=%u)\n",
+                1800u,
+                (unsigned)heap_caps_get_free_size(MALLOC_CAP_DEFAULT),
+                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
         if (s_task) vTaskDelete(s_task);
         s_task = nullptr;
         s_running = false;
