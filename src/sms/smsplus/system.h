@@ -75,6 +75,8 @@ typedef struct
     uint8 type;
 }t_cart;
 
+#define cart smsplus_cart
+
 /* Bitmap structure */
 typedef struct
 {

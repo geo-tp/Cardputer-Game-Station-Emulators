@@ -21,18 +21,18 @@ __license__ = "GPLv3"
 
 #pragma once
 
-#define BIT(v, idx) (((v) >> (idx)) & 1)
+#define GW_BIT(v, idx) (((v) >> (idx)) & 1)
 #define BITS(v, idx, n) (((v) >> (idx)) & ((1 << (n)) - 1))
 
 // VDP registers
 #define REG0_DISABLE_DISPLAY (gwenesis_vdp_regs[0] & 1)
-#define REG0_HVLATCH BIT(gwenesis_vdp_regs[0], 1)
-#define REG0_LINE_INTERRUPT BIT(gwenesis_vdp_regs[0], 4)
-#define REG1_PAL BIT(gwenesis_vdp_regs[1], 3)
+#define REG0_HVLATCH GW_BIT(gwenesis_vdp_regs[0], 1)
+#define REG0_LINE_INTERRUPT GW_BIT(gwenesis_vdp_regs[0], 4)
+#define REG1_PAL GW_BIT(gwenesis_vdp_regs[1], 3)
 #define REG1_240_LINE ((gwenesis_vdp_regs[1] & 0x08) >> 3)
-#define REG1_DMA_ENABLED BIT(gwenesis_vdp_regs[1], 4)
-#define REG1_VBLANK_INTERRUPT BIT(gwenesis_vdp_regs[1], 5)
-#define REG1_DISP_ENABLED BIT(gwenesis_vdp_regs[1], 6)
+#define REG1_DMA_ENABLED GW_BIT(gwenesis_vdp_regs[1], 4)
+#define REG1_VBLANK_INTERRUPT GW_BIT(gwenesis_vdp_regs[1], 5)
+#define REG1_DISP_ENABLED GW_BIT(gwenesis_vdp_regs[1], 6)
 #define REG2_NAMETABLE_A (BITS(gwenesis_vdp_regs[2], 3, 3) << 13)
 #define REG3_NAMETABLE_W BITS(gwenesis_vdp_regs[3], 1, 5)
 #define REG4_NAMETABLE_B (BITS(gwenesis_vdp_regs[4], 0, 3) << 13)

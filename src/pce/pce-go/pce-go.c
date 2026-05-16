@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include "esp_timer.h"
 
 #include "pce-go.h"
 #include "gfx.h"

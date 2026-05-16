@@ -105,8 +105,8 @@ namespace share
             size_t space  = sizeof(name) - 1 - curLen;
             if (space > 0) {
                 size_t toCopy = (extLen < space) ? extLen : space;
-                std::strncat(name, ext, toCopy);
-                name[sizeof(name) - 1] = '\0';
+                std::memcpy(name + curLen, ext, toCopy);
+                name[curLen + toCopy] = '\0';
             }
         }
 

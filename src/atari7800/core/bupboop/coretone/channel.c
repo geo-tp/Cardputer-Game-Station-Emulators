@@ -17,9 +17,9 @@
 /******************************************************************************
  * !!!!----                    EXTERNS AND GLOBALS                   ----!!!!
  ******************************************************************************/
-extern CoreChannel_t aCoreChannels[];
-extern CorePatch_t aCorePatches[];
-extern CoreTrack_t aCoreTracks[];
+extern CoreChannel_t *aCoreChannels;
+extern CorePatch_t *aCorePatches;
+extern CoreTrack_t *aCoreTracks;
 
 const char szCoreSfx_Magic[] = CORETONE_SFXPAK_HEAD_MAGICWORD;
 

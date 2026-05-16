@@ -31,6 +31,7 @@
 #define LoadState  fmsx_LoadState
 #define Palette    fmsx_Palette
 #define RefreshLine fmsx_RefreshLine
+#define CPU        fmsx_CPU
 
 #include "../Z80/Z80.h"     /* Z80 CPU emulation             */
 #include "V9938.h"          /* V9938 VDP opcode emulation    */

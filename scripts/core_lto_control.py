@@ -18,6 +18,26 @@ CORE_PREFIXES = {
 
 SOURCE_EXTENSIONS = (".c", ".cc", ".cpp", ".cxx")
 
+env.Append(
+    CFLAGS=[
+        "-Wno-discarded-qualifiers",
+        "-Wno-implicit-function-declaration",
+        "-Wno-incompatible-pointer-types",
+    ],
+    CCFLAGS=[
+        "-fno-strict-aliasing",
+    ],
+    CXXFLAGS=[
+        "-fno-rtti",
+        "-Wno-attributes",
+        "-Wno-odr",
+    ],
+    LINKFLAGS=[
+        "-Wno-lto-type-mismatch",
+        "-Wno-odr",
+    ],
+)
+
 
 def _configured_cores():
     config = env.GetProjectConfig()
