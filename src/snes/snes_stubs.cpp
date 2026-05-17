@@ -69,7 +69,7 @@ static inline uint32_t apu_rand32(void)
     return apu_rng;
 }
 
-void S9xAPUWritePort(uint8_t port, uint8_t value)
+void S9xAPUWritePort(int32_t port, uint8_t value)
 {
     const uint8_t p = (uint8_t)(port & 3);
     const uint16_t addr = (uint16_t)(0x2140u + p);
@@ -78,7 +78,7 @@ void S9xAPUWritePort(uint8_t port, uint8_t value)
     Memory.FillRAM[addr] = value;
 }
 
-uint8_t S9xAPUReadPort(uint8_t port)
+uint8_t S9xAPUReadPort(int32_t port)
 {
     // Matches Snes9x APU disabled hack
     // Some games expect random values to run properly

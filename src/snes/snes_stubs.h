@@ -19,8 +19,8 @@ bool JustifierOffscreen(void);
 void JustifierButtons(uint32_t *justifiers);
 
 #ifdef SNES_NO_SOUND
-void    S9xAPUWritePort(uint8_t port, uint8_t value);
-uint8_t S9xAPUReadPort(uint8_t port);
+void    S9xAPUWritePort(int32_t port, uint8_t value);
+uint8_t S9xAPUReadPort(int32_t port);
 void    S9xResetAPU(void);
 #endif
 

@@ -2,7 +2,9 @@
 #ifndef OSD_CPU_H
 #define OSD_CPU_H
 
+#ifndef LSB_FIRST
 #define LSB_FIRST ////
+#endif
 
 typedef unsigned char						UINT8;
 typedef unsigned short						UINT16;

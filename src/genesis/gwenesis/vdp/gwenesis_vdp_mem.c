@@ -282,7 +282,7 @@ bool vblank(void)
 static inline __attribute__((always_inline)) void gwenesis_vdp_register_w(int reg, unsigned char value)
 {
     // Mode4 is not emulated yet. Anyway, access to registers > 0xA is blocked.
-    if ((BIT(gwenesis_vdp_regs[0x1], 2)==0) && reg > 0xA)
+    if ((GW_BIT(gwenesis_vdp_regs[0x1], 2)==0) && reg > 0xA)
         return;
 
     gwenesis_vdp_regs[reg] = value;

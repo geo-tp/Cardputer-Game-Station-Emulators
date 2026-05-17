@@ -904,7 +904,7 @@ void	Digiblaster_Init(void)
 }
 
 
-INLINE void	Digiblaster_Update(unsigned char Digiblaster_Data)
+static INLINE void	Digiblaster_Update(unsigned char Digiblaster_Data)
 {
 		unsigned long CurrentNopCount;
 		unsigned long NopDifference;

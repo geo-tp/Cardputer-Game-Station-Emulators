@@ -872,12 +872,12 @@ byte VDPRead(void)
 /*************************************************************/
 void ReportVdpCommand(register byte Op)
 {
-  static char *Ops[16] =
+  static const char *Ops[16] =
   {
     "SET ","AND ","OR  ","XOR ","NOT ","NOP ","NOP ","NOP ",
     "TSET","TAND","TOR ","TXOR","TNOT","NOP ","NOP ","NOP "
   };
-  static char *Commands[16] =
+  static const char *Commands[16] =
   {
     " ABRT"," ????"," ????"," ????","POINT"," PSET"," SRCH"," LINE",
     " LMMV"," LMMM"," LMCM"," LMMC"," HMMV"," HMMM"," YMMM"," HMMC"

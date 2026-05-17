@@ -9,7 +9,9 @@
 #define LOG_PRINTF(level, x...) rg_system_log(RG_LOG_PRINTF, NULL, x)
 #else
 #define LOG_PRINTF(level, x...) printf(x)
+#ifndef IRAM_ATTR
 #define IRAM_ATTR
+#endif
 #endif
 
 #define MESSAGE_ERROR(x, ...) LOG_PRINTF(1, "!! %s: " x, __func__, ## __VA_ARGS__)

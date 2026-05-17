@@ -178,7 +178,7 @@ unsigned char F2;
 #ifdef TARGET_GP2X
 //it's defined in types.h
 #else
-unsigned char *my_pc = NULL;
+const unsigned char *my_pc = NULL;
 #endif
 
 //unsigned char *saved_my_pc;
@@ -6315,7 +6315,7 @@ static INLINE int VECT_RTCGET(unsigned int dest)
    // dest+3 // hours
    // dest+4 // minutes
    // dest+5 // nr year after leap : day of the week
-   unsigned char *d = get_address(dest);
+   unsigned char *d = (unsigned char *)get_address(dest);
    int year;
    struct tm *lt;
    time_t now = time(NULL);
@@ -6386,7 +6386,7 @@ static INLINE int VECT_INTLVSET(unsigned char interrupt, unsigned char level)
 
 static INLINE int VECT_SYSFONTSET(unsigned char parms)
 {
-    ngpBiosSYSFONTSET(get_address(0xA000),(parms>>4)&0x03,parms&0x03);
+    ngpBiosSYSFONTSET((unsigned char *)get_address(0xA000),(parms>>4)&0x03,parms&0x03);
     return 100;
 }
 
@@ -6400,7 +6400,7 @@ static INLINE int VECT_FLASHWRITE(unsigned char chip, unsigned short size, unsig
 {
     unsigned char *fromAddr;
     //toAddr = get_address(((chip) ? 0x00800000 : 0x00200000)+to);
-    fromAddr = get_address(from);
+    fromAddr = (unsigned char *)get_address(from);
 
     vectFlashWrite(chip, to, fromAddr, size * 256);
 
@@ -6534,11 +6534,12 @@ int bios(void)
     return doBios(biosNr);
 }
 
-#define DECODE_TABLE const __attribute__((section(".rodata"))) 
+typedef int (*tlcs_decode_func_t)(void);
+#define DECODE_TABLE static const __attribute__((section(".rodata")))
 
 // instructions where the highest bit of the first byte is set to 1
 // x0000xxx xxxxxxxx
-DECODE_TABLE int (*decode_table80[256])() =
+DECODE_TABLE tlcs_decode_func_t decode_table80[256] =
     {
         udef,  udef,  udef,  udef,  pushM00, udef,  rld00,  rrd00,
         udef,  udef,  udef,  udef,  udef,  udef,  udef,  udef,
@@ -6577,7 +6578,7 @@ DECODE_TABLE int (*decode_table80[256])() =
         cpMRB00, cpMRB00, cpMRB00, cpMRB00, cpMRB00, cpMRB00, cpMRB00, cpMRB00
     };
 // x0010xxx xxxxxxxx
-DECODE_TABLE int (*decode_table90[256])() =
+DECODE_TABLE tlcs_decode_func_t decode_table90[256] =
     {
         udef,  udef,  udef,  udef,  pushwM10, udef,  udef,  udef,
         udef,  udef,  udef,  udef,  udef,  udef,  udef,  udef,
@@ -6616,7 +6617,7 @@ DECODE_TABLE int (*decode_table90[256])() =
         cpMRW10, cpMRW10, cpMRW10, cpMRW10, cpMRW10, cpMRW10, cpMRW10, cpMRW10
     };
 // x0011xxx xxxxxxxx
-DECODE_TABLE int (*decode_table98[256])() =
+DECODE_TABLE tlcs_decode_func_t decode_table98[256] =
     {
         udef,  udef,  udef,  udef,  pushwM10, udef,  udef,  udef,
         udef,  udef,  udef,  udef,  udef,  udef,  udef,  udef,
@@ -6655,7 +6656,7 @@ DECODE_TABLE int (*decode_table98[256])() =
         cpMRW10, cpMRW10, cpMRW10, cpMRW10, cpMRW10, cpMRW10, cpMRW10, cpMRW10
     };
 // x0100xxx xxxxxxxx
-DECODE_TABLE int (*decode_tableA0[256])() =
+DECODE_TABLE tlcs_decode_func_t decode_tableA0[256] =
     {
         udef,  udef,  udef,  udef,  udef,  udef,  udef,  udef,
         udef,  udef,  udef,  udef,  udef,  udef,  udef,  udef,
@@ -6694,7 +6695,7 @@ DECODE_TABLE int (*decode_tableA0[256])() =
         cpMRL20, cpMRL20, cpMRL20, cpMRL20, cpMRL20, cpMRL20, cpMRL20, cpMRL20
     };
 // x0110xxx xxxxxxxx
-DECODE_TABLE int (*decode_tableB0[256])() =
+DECODE_TABLE tlcs_decode_func_t decode_tableB0[256] =
     {
         ldMI30,  udef,  ldwMI30, udef,  popM30,  udef,  popwM30, udef,
         udef,  udef,  udef,  udef,  udef , udef,  udef,  udef,
@@ -6733,7 +6734,7 @@ DECODE_TABLE int (*decode_tableB0[256])() =
         retcc8,  retcc9,  retccA,  retccB,  retccC,  retccD,  retccE,  retccF
     };
 // x0111xxx xxxxxxxx
-DECODE_TABLE int (*decode_tableB8[256])() =
+DECODE_TABLE tlcs_decode_func_t decode_tableB8[256] =
     {
         ldMI30,  udef,  ldwMI30, udef,  popM30,  udef,  popwM30, udef,
         udef,  udef,  udef,  udef,  udef,  udef,  udef,  udef,
@@ -6772,7 +6773,7 @@ DECODE_TABLE int (*decode_tableB8[256])() =
         udef,  udef,  udef,  udef,  udef,  udef,  udef,  udef
     };
 // x1000xxx xxxxxxxx
-DECODE_TABLE int (*decode_tableC0[256])() =
+DECODE_TABLE tlcs_decode_func_t decode_tableC0[256] =
     {
         udef,  udef,  udef,  udef,  pushM00, udef,  rld00,  rrd00,
         udef,  udef,  udef,  udef,  udef,  udef,  udef,  udef,
@@ -6811,7 +6812,7 @@ DECODE_TABLE int (*decode_tableC0[256])() =
         cpMRB00, cpMRB00, cpMRB00, cpMRB00, cpMRB00, cpMRB00, cpMRB00, cpMRB00
     };
 // x1001xxx xxxxxxxx
-DECODE_TABLE int (*decode_tableC8[256])() =
+DECODE_TABLE tlcs_decode_func_t decode_tableC8[256] =
     {
         udef,  udef,  udef,  ldrIB,  pushrB,  poprB,  cplrB,  negrB,
         mulrIB,  mulsrIB, divrIB,  divsrIB, udef,  udef,  udef,  udef,
@@ -6850,7 +6851,7 @@ DECODE_TABLE int (*decode_tableC8[256])() =
         rlcArB,  rrcArB,  rlArB,  rrArB,  slaArB,  sraArB,  sllArB,  srlArB
     };
 // x1010xxx xxxxxxxx
-DECODE_TABLE int (*decode_tableD0[256])() =
+DECODE_TABLE tlcs_decode_func_t decode_tableD0[256] =
     {
         udef,  udef,  udef,  udef,  pushwM10, udef,  udef,  udef,
         udef,  udef,  udef,  udef,  udef,  udef,  udef,  udef,
@@ -6889,7 +6890,7 @@ DECODE_TABLE int (*decode_tableD0[256])() =
         cpMRW10, cpMRW10, cpMRW10, cpMRW10, cpMRW10, cpMRW10, cpMRW10, cpMRW10
     };
 // x1011xxx xxxxxxxx
-DECODE_TABLE int (*decode_tableD8[256])() =
+DECODE_TABLE tlcs_decode_func_t decode_tableD8[256] =
     {
         udef,  udef,  udef,  ldrIW,  pushrW,  poprW,  cplrW,  negrW,
         mulrIW,  mulsrIW, divrIW,  divsrIW, udef,  udef,  bs1f,  bs1b,
@@ -6928,7 +6929,7 @@ DECODE_TABLE int (*decode_tableD8[256])() =
         rlcArW,  rrcArW,  rlArW,  rrArW,  slaArW,  sraArW,  sllArW,  srlArW
     };
 // x1100xxx xxxxxxxx
-DECODE_TABLE int (*decode_tableE0[256])() =
+DECODE_TABLE tlcs_decode_func_t decode_tableE0[256] =
     {
         udef,  udef,  udef,  udef,  udef,  udef,  udef,  udef,
         udef,  udef,  udef,  udef,  udef,  udef,  udef,  udef,
@@ -6967,7 +6968,7 @@ DECODE_TABLE int (*decode_tableE0[256])() =
         cpMRL20, cpMRL20, cpMRL20, cpMRL20, cpMRL20, cpMRL20, cpMRL20, cpMRL20
     };
 // x1101xxx xxxxxxxx
-DECODE_TABLE int (*decode_tableE8[256])() =
+DECODE_TABLE tlcs_decode_func_t decode_tableE8[256] =
     {
         udef,  udef,  udef,  ldrIL,  pushrL,  poprL,  udef,  udef,
         udef,  udef,  udef,  udef,  link,  unlk,  udef,  udef,
@@ -7006,7 +7007,7 @@ DECODE_TABLE int (*decode_tableE8[256])() =
         rlcArL,  rrcArL,  rlArL,  rrArL,  slaArL,  sraArL,  sllArL,  srlArL
     };
 // x1110xxx xxxxxxxx
-DECODE_TABLE int (*decode_tableF0[256])() =
+DECODE_TABLE tlcs_decode_func_t decode_tableF0[256] =
     {
         //00
         ldMI30,  udef,  ldwMI30, udef,  popM30,  udef,  popwM30, udef,
@@ -7578,8 +7579,12 @@ int tlcs_alloc_tables(void)
         !cregsB   || !cregsW   || !cregsL) {
         free(allregsB); free(allregsW); free(allregsL);
         free(cregsB);   free(cregsW);   free(cregsL);
-        allregsB = allregsW = allregsL = NULL;
-        cregsB   = cregsW   = cregsL   = NULL;
+        allregsB = NULL;
+        allregsW = NULL;
+        allregsL = NULL;
+        cregsB = NULL;
+        cregsW = NULL;
+        cregsL = NULL;
         return -1;
     }
     return 0;

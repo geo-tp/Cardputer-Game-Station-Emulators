@@ -4,15 +4,18 @@
 
 #include "msx_host.h"
 
-#define word arduino_word
 #include <M5Cardputer.h>
+#ifdef word
 #undef word
+#endif
+#define word arduino_word
 
 extern "C" {
 #include "fMSX/MSX.h"
 #include "EMULib/EMULib.h"
 #include "EMULib/Sound.h"
 }
+#undef word
 
 namespace msx {
 

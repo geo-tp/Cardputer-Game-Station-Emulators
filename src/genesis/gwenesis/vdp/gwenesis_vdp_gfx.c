@@ -614,7 +614,7 @@ void draw_line_b(int line)
   uint16_t *vsram = &VSRAM[1];
   uint8_t *end = scr + screen_width;
 
-  //bool column_scrolling = BIT(gwenesis_vdp_regs[11], 2);
+  //bool column_scrolling = GW_BIT(gwenesis_vdp_regs[11], 2);
   const unsigned int column_scrolling = gwenesis_vdp_regs[11] & 0x4;
 
   // Invert horizontal scrolling (because it goes right, but we need to offset
@@ -662,7 +662,7 @@ void draw_line_aw(int line) {
   // Check if we are in the window region only
   // if it's the case, we cancel the plane A drawing
   int Window_line = REG18_WINDOW_VPOS * 8;
-  //bool window_down = BIT(gwenesis_vdp_regs[18], 7);
+  //bool window_down = GW_BIT(gwenesis_vdp_regs[18], 7);
   int window_down = gwenesis_vdp_regs[18] & 0x80;
 
   int PlanA_first = PlanA_firstcol;
@@ -689,7 +689,7 @@ void draw_line_aw(int line) {
   uint8_t *pos = scr + PlanA_first; // scr + screen_width;
   uint8_t *end = scr + PlanA_last;  // scr + screen_width
 
-   //bool column_scrolling = BIT(gwenesis_vdp_regs[11], 2);
+   //bool column_scrolling = GW_BIT(gwenesis_vdp_regs[11], 2);
   const unsigned int column_scrolling = gwenesis_vdp_regs[11] & 0x4;
 
   // Invert horizontal scrolling (because it goes right, but we need to offset
@@ -1018,7 +1018,7 @@ void IRAM_ATTR gwenesis_vdp_render_config()
         base_w = ((REG3_NAMETABLE_W & 0x1f) << 11);
 
 
-    bool window_right = BIT(gwenesis_vdp_regs[17], 7);
+    bool window_right = GW_BIT(gwenesis_vdp_regs[17], 7);
 
     // int window_is_bugged = 0;
     PlanA_firstcol = 0;

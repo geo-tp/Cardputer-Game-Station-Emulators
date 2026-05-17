@@ -19,7 +19,9 @@ extern "C" {
 
                                /* Compilation options:       */
 /* #define DEBUG */            /* Compile debugging version  */
+#ifndef LSB_FIRST
 #define LSB_FIRST              /* Compile for low-endian CPU */
+#endif
 /* #define MSB_FIRST */        /* Compile for hi-endian CPU  */
 #define EXECZ80
 
