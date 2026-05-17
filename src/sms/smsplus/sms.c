@@ -1,5 +1,6 @@
 
 #include "shared.h"
+#include "sms/save.h"
 void ym2413_write(int chip, int offset, int data);
 
 /* SMS context */
@@ -462,12 +463,28 @@ void sms_mapper_w(int address, int data)
         case 0:
             if(data & 8)
             {
-                sms.save = 1;
-                /* Page in ROM */
-                cpu_readmap[4]  = &sms.sram[(data & 4) ? 0x4000 : 0x0000];
-                cpu_readmap[5]  = &sms.sram[(data & 4) ? 0x6000 : 0x2000];
-                cpu_writemap[4] = &sms.sram[(data & 4) ? 0x4000 : 0x0000];
-                cpu_writemap[5] = &sms.sram[(data & 4) ? 0x6000 : 0x2000];
+                if(!sms.sram)
+                {
+                    sms.sram = sms_save_ensure_sram();
+                }
+
+                if(sms.sram)
+                {
+                    sms.save = 1;
+                    /* Page in cartridge SRAM */
+                    cpu_readmap[4]  = &sms.sram[(data & 4) ? 0x4000 : 0x0000];
+                    cpu_readmap[5]  = &sms.sram[(data & 4) ? 0x6000 : 0x2000];
+                    cpu_writemap[4] = &sms.sram[(data & 4) ? 0x4000 : 0x0000];
+                    cpu_writemap[5] = &sms.sram[(data & 4) ? 0x6000 : 0x2000];
+                }
+                else
+                {
+                    sms.save = 0;
+                    cpu_readmap[4]  = sms.dummy;
+                    cpu_readmap[5]  = sms.dummy;
+                    cpu_writemap[4] = sms.dummy;
+                    cpu_writemap[5] = sms.dummy;
+                }
             }
             else
             {

@@ -40,8 +40,12 @@ extern uint32_t lastPadState;
 
 namespace share
 {
+    typedef void (*BeforeRestartCallback)();
+
     bool shouldPollInput(); 
     void checkCommonInput(const Keyboard_Class::KeysState& status);
+    void setBeforeRestartCallback(BeforeRestartCallback callback);
+    void clearBeforeRestartCallback();
 
     // I2C PAD (M5Stack JoyV2 or Joystick v1.1)
     void detectI2cPad();

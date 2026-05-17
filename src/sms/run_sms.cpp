@@ -14,6 +14,7 @@
 #include "sms/input.h"
 #include "sms/save.h"
 #include "share/emu_log_cpp.h"
+#include "share/input.h"
 
 // WARNING: The real bios is needed for Coleco emulation
 // It is not included in the repo for legal reasons
@@ -31,6 +32,11 @@ static uint8_t map_console_type(SmsConsoleMode mode)
   }
 }
 
+static void sms_flush_save_before_restart()
+{
+  sms_save_force_flush();
+}
+
 void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const char* romName)
 {
   CardputerView display;
@@ -45,20 +51,20 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
   // Runtime buffers only: no core allocation at boot.
   uint8_t* videoBuf = (uint8_t*)heap_caps_aligned_alloc(
       32, 256 * 240, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT | MALLOC_CAP_DMA);
-  uint8_t* sram = nullptr;
-  if (needsSram) {
-    sram = (uint8_t*)heap_caps_aligned_alloc(
-        32, 0x8000, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  }
 
-  if (!videoBuf || (needsSram && !sram)) {
-    EMU_LOG("SMS core alloc failed: video=%p sram=%p\n", videoBuf, sram);
+  if (!videoBuf) {
+    EMU_LOG("SMS core alloc failed: video=%p\n", videoBuf);
     free(videoBuf);
-    free(sram);
     return;
   }
 
-  if (sram) memset(sram, 0xFF, 0x8000);
+  if (needsSram) {
+    sms_save_prepare(romName, 0x8000);
+    share::setBeforeRestartCallback(sms_flush_save_before_restart);
+  } else {
+    sms_save_shutdown();
+    share::clearBeforeRestartCallback();
+  }
 
   sms.coleco_bios = (mode == SMS_MODE_COLECO)
       ? (uint8_t*)ColecoVision_BIOS
@@ -66,7 +72,7 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
 
   // Mapping structures core
   sms.dummy = videoBuf;
-  sms.sram  = sram;
+  sms.sram  = nullptr;
 
   bitmap.width  = 256;
   bitmap.height = 192;
@@ -88,25 +94,21 @@ void run_sms(const uint8_t* romPtr, size_t romLen, SmsConsoleMode mode, const ch
   if (!z80_allocate_flag_tables()) {
     EMU_LOG("SMS Z80 alloc failed\n");
     free(videoBuf);
-    free(sram);
+    sms_save_shutdown();
+    share::clearBeforeRestartCallback();
     sms.coleco_bios = nullptr;
     return;
   }
   if (!sms_init_ram()) {
     EMU_LOG("SMS WRAM alloc failed\n");
     free(videoBuf);
-    free(sram);
+    sms_save_shutdown();
+    share::clearBeforeRestartCallback();
     sms.coleco_bios = nullptr;
     return;
   }
   emu_system_init(22050);
   system_reset();
-
-  // Save
-  if (sram) {
-    sms_save_init(romName, sram, 0x8000);
-    sms_save_load();
-  }
 
   // Display
   sms_display_init(); 
