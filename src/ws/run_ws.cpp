@@ -68,7 +68,7 @@ extern "C" void run_ws(const uint8_t* rom, size_t len, const char* rom_name, boo
     // Frame pacing (75Hz)
     next += frame_us;
     int64_t remain = (int64_t)next - (int64_t)esp_timer_get_time();
-    if (remain > 2000) vTaskDelay(remain / 1000 / portTICK_PERIOD_MS);
+    if (remain > 2000) vTaskDelay(((uint32_t)remain / 1000u) / portTICK_PERIOD_MS);
     else if (remain > 0) ets_delay_us((uint32_t)remain);
     else next = esp_timer_get_time();
   }
