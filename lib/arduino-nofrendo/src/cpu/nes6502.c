@@ -2437,6 +2437,11 @@ void nes6502_irq(void)
    }
 }
 
+void nes6502_clear_irq_pending(void)
+{
+   cpu.int_pending = 0;
+}
+
 /* Set dead cycle period */
 void nes6502_burn(int cycles)
 {

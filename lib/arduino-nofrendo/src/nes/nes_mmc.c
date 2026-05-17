@@ -214,6 +214,7 @@ void mmc_reset(void)
 
    ppu_setlatchfunc(NULL);
    ppu_setvromswitch(NULL);
+   ppu_setbgfunc(NULL);
 
    if (mmc.intf->init)
       mmc.intf->init();

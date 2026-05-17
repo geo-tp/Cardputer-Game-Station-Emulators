@@ -72,6 +72,8 @@
 /* some mappers do *dumb* things */
 typedef void (*ppulatchfunc_t)(uint32 address, uint8 value);
 typedef void (*ppuvromswitch_t)(uint8 value);
+typedef bool (*ppubgfunc_t)(uint32 address, uint8 tile, uint8 fine_y,
+                            uint8 *col_high, uint8 **data_ptr);
 
 typedef struct ppu_s
 {
@@ -102,6 +104,7 @@ typedef struct ppu_s
    /* callbacks for naughty mappers */
    ppulatchfunc_t latchfunc;
    ppuvromswitch_t vromswitch;
+   ppubgfunc_t bgfunc;
 
    /* copy of our current palette */
    rgb_t *curpal;
@@ -115,6 +118,8 @@ typedef struct ppu_s
 /* TODO: should use this pointers */
 extern void ppu_setlatchfunc(ppulatchfunc_t func);
 extern void ppu_setvromswitch(ppuvromswitch_t func);
+extern void ppu_setbgfunc(ppubgfunc_t func);
+extern bool ppu_obj_8x16(void);
 
 extern void ppu_getcontext(ppu_t *dest_ppu);
 extern void ppu_setcontext(ppu_t *src_ppu);

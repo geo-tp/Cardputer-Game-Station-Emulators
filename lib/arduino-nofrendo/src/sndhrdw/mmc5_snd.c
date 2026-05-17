@@ -358,7 +358,6 @@ static apu_memread mmc5_memread[] =
 static apu_memwrite mmc5_memwrite[] =
     {
         {0x5000, 0x5015, mmc5_write},
-        {0x5114, 0x5115, mmc5_write},
         {0x5205, 0x5206, mmc5_write},
         {-1, -1, NULL}};
 
