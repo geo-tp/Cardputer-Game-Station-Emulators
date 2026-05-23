@@ -160,11 +160,11 @@ void sms_reset(void)
     {
         int p = cart.pages ? cart.pages : 1;
 
-        /* 0000-1FFF BIOS, 2000-5FFF expansion, 6000-7FFF RAM mirror, 8000-FFFF CART */
+        /* 0000-1FFF BIOS, 2000-5FFF expansion/open bus, 6000-7FFF RAM, 8000-FFFF CART */
         cpu_readmap[0] = sms.coleco_bios ? sms.coleco_bios + 0x0000 : dummy;
-        cpu_readmap[1] = sms.coleco_bios ? sms.coleco_bios + 0x2000 : dummy;
+        cpu_readmap[1] = dummy;
         cpu_readmap[2] = dummy;
-        cpu_readmap[3] = dummy;
+        cpu_readmap[3] = sms.ram ? sms.ram : dummy;
         cpu_readmap[4] = cart.rom + (((0 % p) << 13));
         cpu_readmap[5] = cart.rom + (((1 % p) << 13));
         cpu_readmap[6] = cart.rom + (((2 % p) << 13));
@@ -173,7 +173,7 @@ void sms_reset(void)
         cpu_writemap[0] = dummy;
         cpu_writemap[1] = dummy;
         cpu_writemap[2] = dummy;
-        cpu_writemap[3] = dummy;
+        cpu_writemap[3] = sms.ram ? sms.ram : dummy;
         cpu_writemap[4] = dummy;
         cpu_writemap[5] = dummy;
         cpu_writemap[6] = dummy;
