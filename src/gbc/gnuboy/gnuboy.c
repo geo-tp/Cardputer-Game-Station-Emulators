@@ -5,6 +5,7 @@
 #include "cpu.h"
 #include "sound.h"
 #include "lcd.h"
+#include <stdio.h>
 
 #define hw GB
 
@@ -700,204 +701,239 @@ typedef struct
 	size_t len;
 } sblock_t;
 
-
 static int do_save_load(const char *file, bool save)
 {
-	uint32_t sav_ver = SAVE_VERSION;
-	const svar_t svars[] =
-	{
-		I4("GbSs", &sav_ver),
+    printf("do_save_load start\n");
+    printf("cpu=%p snd=%p cart=%p\n", hw.cpu, hw.snd, hw.cart);
 
-		I2("PC  ", &W(hw.cpu->pc)),
-		I2("SP  ", &W(hw.cpu->sp)),
-		I2("BC  ", &W(hw.cpu->bc)),
-		I2("DE  ", &W(hw.cpu->de)),
-		I2("HL  ", &W(hw.cpu->hl)),
-		I2("AF  ", &W(hw.cpu->af)),
+    if (!hw.cpu) {
+        printf("ERROR: hw.cpu NULL\n");
+        return -1;
+    }
 
-		I4("IME ", &hw.cpu->ime),
-		I4("ima ", &hw.cpu->ima),
-		I4("spd ", &hw.cpu->double_speed),
-		I4("halt", &hw.cpu->halted),
-		I4("div ", &hw.cpu->div),
-		I4("tim ", &hw.cpu->timer),
-		I4("lcdc", &hw.cycles),
-		I4("snd ", &hw.snd->cycles),
+    if (!hw.cart) {
+        printf("ERROR: hw.cart NULL\n");
+        return -1;
+    }
 
-		I4("ints", &hw.ilines),
-		I4("pad ", &hw.pad),
-		I4("hdma", &hw.hdma),
-		I4("seri", &hw.serial),
+    if (!hw.snd) {
+        printf("WARNING: hw.snd NULL (continuing without sound)\n");
+    }
 
-		I4("mbcm", &hw.cart->bankmode),
-		I4("romb", &hw.cart->rombank),
-		I4("ramb", &hw.cart->rambank),
-		I4("enab", &hw.cart->enableram),
+    // --- dummy values כשאין snd ---
+    static uint32_t dummy_u32 = 0;
+    static uint8_t  dummy_wave[16] = {0};
 
-		// We should pack that below. Size of components could vary per platform
-		I4("rtcR", &hw.cart->rtc.sel),
-		I4("rtcL", &hw.cart->rtc.latch),
-		I4("rtcF", &hw.cart->rtc.flags),
-		I4("rtcd", &hw.cart->rtc.d),
-		I4("rtch", &hw.cart->rtc.h),
-		I4("rtcm", &hw.cart->rtc.m),
-		I4("rtcs", &hw.cart->rtc.s),
-		I4("rtct", &hw.cart->rtc.ticks),
-		I1("rtR8", &hw.cart->rtc.regs[0]),
-		I1("rtR9", &hw.cart->rtc.regs[1]),
-		I1("rtRA", &hw.cart->rtc.regs[2]),
-		I1("rtRB", &hw.cart->rtc.regs[3]),
-		I1("rtRC", &hw.cart->rtc.regs[4]),
+    uint32_t *snd_cycles  = hw.snd ? &hw.snd->cycles        : &dummy_u32;
+    uint32_t *s1on        = hw.snd ? &hw.snd->ch[0].on      : &dummy_u32;
+    uint32_t *s1p         = hw.snd ? &hw.snd->ch[0].pos     : &dummy_u32;
+    uint32_t *s1c         = hw.snd ? &hw.snd->ch[0].cnt     : &dummy_u32;
+    uint32_t *s1ec        = hw.snd ? &hw.snd->ch[0].encnt   : &dummy_u32;
+    uint32_t *s1sc        = hw.snd ? &hw.snd->ch[0].swcnt   : &dummy_u32;
+    uint32_t *s1sf        = hw.snd ? &hw.snd->ch[0].swfreq  : &dummy_u32;
+    uint32_t *s2on        = hw.snd ? &hw.snd->ch[1].on      : &dummy_u32;
+    uint32_t *s2p         = hw.snd ? &hw.snd->ch[1].pos     : &dummy_u32;
+    uint32_t *s2c         = hw.snd ? &hw.snd->ch[1].cnt     : &dummy_u32;
+    uint32_t *s2ec        = hw.snd ? &hw.snd->ch[1].encnt   : &dummy_u32;
+    uint32_t *s3on        = hw.snd ? &hw.snd->ch[2].on      : &dummy_u32;
+    uint32_t *s3p         = hw.snd ? &hw.snd->ch[2].pos     : &dummy_u32;
+    uint32_t *s3c         = hw.snd ? &hw.snd->ch[2].cnt     : &dummy_u32;
+    uint32_t *s4on        = hw.snd ? &hw.snd->ch[3].on      : &dummy_u32;
+    uint32_t *s4p         = hw.snd ? &hw.snd->ch[3].pos     : &dummy_u32;
+    uint32_t *s4c         = hw.snd ? &hw.snd->ch[3].cnt     : &dummy_u32;
+    uint32_t *s4ec        = hw.snd ? &hw.snd->ch[3].encnt   : &dummy_u32;
+    uint8_t  *wave_ptr    = hw.snd ? hw.snd->wave           : dummy_wave;
 
-		I4("S1on", &hw.snd->ch[0].on),
-		I4("S1p ", &hw.snd->ch[0].pos),
-		I4("S1c ", &hw.snd->ch[0].cnt),
-		I4("S1ec", &hw.snd->ch[0].encnt),
-		I4("S1sc", &hw.snd->ch[0].swcnt),
-		I4("S1sf", &hw.snd->ch[0].swfreq),
+    uint32_t sav_ver = SAVE_VERSION;
+    const svar_t svars[] =
+    {
+        I4("GbSs", &sav_ver),
 
-		I4("S2on", &hw.snd->ch[1].on),
-		I4("S2p ", &hw.snd->ch[1].pos),
-		I4("S2c ", &hw.snd->ch[1].cnt),
-		I4("S2ec", &hw.snd->ch[1].encnt),
+        I2("PC  ", &W(hw.cpu->pc)),
+        I2("SP  ", &W(hw.cpu->sp)),
+        I2("BC  ", &W(hw.cpu->bc)),
+        I2("DE  ", &W(hw.cpu->de)),
+        I2("HL  ", &W(hw.cpu->hl)),
+        I2("AF  ", &W(hw.cpu->af)),
 
-		I4("S3on", &hw.snd->ch[2].on),
-		I4("S3p ", &hw.snd->ch[2].pos),
-		I4("S3c ", &hw.snd->ch[2].cnt),
+        I4("IME ", &hw.cpu->ime),
+        I4("ima ", &hw.cpu->ima),
+        I4("spd ", &hw.cpu->double_speed),
+        I4("halt", &hw.cpu->halted),
+        I4("div ", &hw.cpu->div),
+        I4("tim ", &hw.cpu->timer),
+        I4("lcdc", &hw.cycles),
+        I4("snd ", snd_cycles),          // <-- תוקן
 
-		I4("S4on", &hw.snd->ch[3].on),
-		I4("S4p ", &hw.snd->ch[3].pos),
-		I4("S4c ", &hw.snd->ch[3].cnt),
-		I4("S4ec", &hw.snd->ch[3].encnt),
+        I4("ints", &hw.ilines),
+        I4("pad ", &hw.pad),
+        I4("hdma", &hw.hdma),
+        I4("seri", &hw.serial),
 
-		END
-	};
+        I4("mbcm", &hw.cart->bankmode),
+        I4("romb", &hw.cart->rombank),
+        I4("ramb", &hw.cart->rambank),
+        I4("enab", &hw.cart->enableram),
 
-	byte *buf = calloc(1, 4096);
-	if (!buf) return -2;
+        I4("rtcR", &hw.cart->rtc.sel),
+        I4("rtcL", &hw.cart->rtc.latch),
+        I4("rtcF", &hw.cart->rtc.flags),
+        I4("rtcd", &hw.cart->rtc.d),
+        I4("rtch", &hw.cart->rtc.h),
+        I4("rtcm", &hw.cart->rtc.m),
+        I4("rtcs", &hw.cart->rtc.s),
+        I4("rtct", &hw.cart->rtc.ticks),
+        I1("rtR8", &hw.cart->rtc.regs[0]),
+        I1("rtR9", &hw.cart->rtc.regs[1]),
+        I1("rtRA", &hw.cart->rtc.regs[2]),
+        I1("rtRB", &hw.cart->rtc.regs[3]),
+        I1("rtRC", &hw.cart->rtc.regs[4]),
 
-	uint32_t (*header)[2] = (uint32_t (*)[2])buf;
+        I4("S1on", s1on),                // <-- תוקן
+        I4("S1p ", s1p),
+        I4("S1c ", s1c),
+        I4("S1ec", s1ec),
+        I4("S1sc", s1sc),
+        I4("S1sf", s1sf),
 
-	sblock_t blocks[] = {
-		{buf, 1},
-		{hw.rambanks, IS_CGB ? 8 : 2},
-		{hw.vbanks, IS_CGB ? 4 : 2},
-		{cart.rambanks, cart.ramsize * 2},
-		{NULL, 0},
-	};
+        I4("S2on", s2on),
+        I4("S2p ", s2p),
+        I4("S2c ", s2c),
+        I4("S2ec", s2ec),
 
-	FILE *fp = NULL;
+        I4("S3on", s3on),
+        I4("S3p ", s3p),
+        I4("S3c ", s3c),
 
-	if (save)
-	{
-		if (!(fp = fopen(file, "wb")))
-			goto _error;
+        I4("S4on", s4on),
+        I4("S4p ", s4p),
+        I4("S4c ", s4c),
+        I4("S4ec", s4ec),
 
-		for (int i = 0; svars[i].ptr; i++)
-		{
-			uint32_t d = 0;
+        END
+    };
 
-			switch (svars[i].len)
-			{
-			case 1:
-				d = *(uint8_t *)svars[i].ptr;
-				break;
-			case 2:
-				d = *(uint16_t *)svars[i].ptr;
-				break;
-			case 4:
-				d = *(uint32_t *)svars[i].ptr;
-				break;
-			}
+    byte *buf = (byte *)calloc(1, 4096);
+    if (!buf)
+    {
+        printf("calloc failed");
+        return -2;
+    }
 
-			header[i][0] = *(uint32_t *)svars[i].key;
-			header[i][1] = LIL(d);
-		}
+    uint32_t (*header)[2] = (uint32_t (*)[2])buf;
 
-		memcpy(buf + 0xD00, hw.ioregs, 256);
-		memcpy(buf + 0xE00, hw.pal, 128);
-		memcpy(buf + 0xF00, hw.oam, 256);
-		memcpy(buf + 0xCF0, hw.snd->wave, 16);
+    sblock_t blocks[] = {
+        {buf, 1},
+        {hw.rambanks, IS_CGB ? 8 : 2},
+        {hw.vbanks,   IS_CGB ? 4 : 2},
+        {cart.rambanks, cart.ramsize * 2},
+        {NULL, 0},
+    };
 
-		for (int i = 0; blocks[i].ptr != NULL; i++)
-		{
-			if (fwrite(blocks[i].ptr, 4096, blocks[i].len, fp) < 1)
-			{
-				MESSAGE_ERROR("Write error in block %d\n", i);
-				goto _error;
-			}
-		}
-	}
-	else
-	{
-		if (!(fp = fopen(file, "rb")))
-			goto _error;
+    FILE *fp = NULL;
 
-		for (int i = 0; blocks[i].ptr != NULL; i++)
-		{
-			if (fread(blocks[i].ptr, 4096, blocks[i].len, fp) < 1)
-			{
-				MESSAGE_ERROR("Read error in block %d\n", i);
-				goto _error;
-			}
-		}
+    if (save)
+    {
+        printf("Saving to: %s\n", file);
 
-		for (int i = 0; svars[i].ptr; i++)
-		{
-			uint32_t d = 0;
+        if (!(fp = fopen(file, "wb")))
+        {
+            printf("fopen failed (write)");
+            goto _error;
+        }
 
-			for (int j = 0; header[j][0]; j++)
-			{
-				if (header[j][0] == *(uint32_t *)svars[i].key)
-				{
-					d = LIL(header[j][1]);
-					break;
-				}
-			}
+        for (int i = 0; svars[i].ptr; i++)
+        {
+            uint32_t d = 0;
+            switch (svars[i].len)
+            {
+            case 1: d = *(uint8_t  *)svars[i].ptr; break;
+            case 2: d = *(uint16_t *)svars[i].ptr; break;
+            case 4: d = *(uint32_t *)svars[i].ptr; break;
+            }
+            header[i][0] = *(uint32_t *)svars[i].key;
+            header[i][1] = LIL(d);
+        }
 
-			switch (svars[i].len)
-			{
-			case 1:
-				*(uint8_t *)svars[i].ptr = d;
-				break;
-			case 2:
-				*(uint16_t *)svars[i].ptr = d;
-				break;
-			case 4:
-				*(uint32_t *)svars[i].ptr = d;
-				break;
-			}
-		}
+        memcpy(buf + 0xD00, hw.ioregs, 256);
+        memcpy(buf + 0xE00, hw.pal,    128);
+        memcpy(buf + 0xF00, hw.oam,    256);
+        memcpy(buf + 0xCF0, wave_ptr,   16); // <-- תוקן
 
-		if (sav_ver != SAVE_VERSION)
-			MESSAGE_ERROR("Save file version mismatch!\n");
+        for (int i = 0; blocks[i].ptr != NULL; i++)
+        {
+            if (fwrite(blocks[i].ptr, 4096, blocks[i].len, fp) < 1)
+            {
+                printf("Write error block %d\n", i);
+                goto _error;
+            }
+        }
+    }
+    else
+    {
+        printf("Loading from: %s\n", file);
 
-		memcpy(hw.ioregs, buf + 0xD00, 256);
-		memcpy(hw.pal, buf + 0xE00, 128);
-		memcpy(hw.oam, buf + 0xF00, 256);
-		memcpy(hw.snd->wave, buf + 0xCF0, 16);
+        if (!(fp = fopen(file, "rb")))
+        {
+            printf("fopen failed (read)");
+            goto _error;
+        }
 
-		// Disable BIOS. This is a hack to support old saves
-		R_BIOS = 0x1;
+        for (int i = 0; blocks[i].ptr != NULL; i++)
+        {
+            if (fread(blocks[i].ptr, 4096, blocks[i].len, fp) < 1)
+            {
+                printf("Read error block %d\n", i);
+                goto _error;
+            }
+        }
 
-		// Older saves might overflow this
-		cart.rambank &= (cart.ramsize - 1);
+        for (int i = 0; svars[i].ptr; i++)
+        {
+            uint32_t d = 0;
+            for (int j = 0; header[j][0]; j++)
+            {
+                if (header[j][0] == *(uint32_t *)svars[i].key)
+                {
+                    d = LIL(header[j][1]);
+                    break;
+                }
+            }
+            switch (svars[i].len)
+            {
+            case 1: *(uint8_t  *)svars[i].ptr = d; break;
+            case 2: *(uint16_t *)svars[i].ptr = d; break;
+            case 4: *(uint32_t *)svars[i].ptr = d; break;
+            }
+        }
 
-		gb_lcd_pal_dirty();
-		gb_sound_dirty();
-		gb_hw_updatemap();
-	}
+        if (sav_ver != SAVE_VERSION)
+            printf("Save version mismatch!\n");
 
-	fclose(fp);
-	free(buf);
+        memcpy(hw.ioregs, buf + 0xD00, 256);
+        memcpy(hw.pal,    buf + 0xE00, 128);
+        memcpy(hw.oam,    buf + 0xF00, 256);
+        memcpy(wave_ptr,  buf + 0xCF0,  16); // <-- תוקן
 
-	return 0;
+        R_BIOS = 0x1;
+        cart.rambank &= (cart.ramsize - 1);
+
+        gb_lcd_pal_dirty();
+        gb_sound_dirty();
+        gb_hw_updatemap();
+    }
+
+    fclose(fp);
+    free(buf);
+
+    printf("do_save_load success\n");
+    return 0;
 
 _error:
-	if (fp) fclose(fp);
-	if (buf) free(buf);
-
-	return -1;
+    printf("ERROR in do_save_load\n");
+    if (fp)  fclose(fp);
+    if (buf) free(buf);
+    return -1;
 }
 
 
