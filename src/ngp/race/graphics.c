@@ -597,13 +597,15 @@ void myGraphicsBlitLine(unsigned char render)
             // couleurs OOW + fond
             const uint8_t  oow_idx = (uint8_t)(*oowSelect & 0x07);
             const uint16_t OOWCol  = oowTable ? NGPC_TO_SDL16(oowTable[oow_idx]) : 0;
+            const uint8_t frame1 = *frame1Pri;
+            const bool plane2_front = is_bw ? ((frame1 & 0x01) != 0) : ((frame1 & 0x80) != 0);
 
             uint16_t bgcol;
             const uint8_t bgsel = *bgSelect;
-            if (bgsel & 0x80) {
+            if (is_bw) {
+                bgcol = OOWCol;
+            } else if (bgsel & 0x80) {
                 bgcol = NGPC_TO_SDL16(bgTable[bgsel & 0x07]);
-            } else if (is_bw) {
-                bgcol = NGPC_TO_SDL16(bwTable[0]);
             } else {
                 bgcol = palette_table ? NGPC_TO_SDL16(palette_table[0]) : 0;
             }
@@ -631,7 +633,7 @@ void myGraphicsBlitLine(unsigned char render)
                         myPalettes[64 + i]  = NGPC_TO_SDL16(bwTable[bw_palette_table[8  + i] & 0x07]);
                         myPalettes[68 + i]  = NGPC_TO_SDL16(bwTable[bw_palette_table[12 + i] & 0x07]);
                         myPalettes[128 + i] = NGPC_TO_SDL16(bwTable[bw_palette_table[16 + i] & 0x07]);
-                        myPalettes[132 + i] = NGPC_TO_SDL16(bw_palette_table[20 + i] & 0x07);
+                        myPalettes[132 + i] = NGPC_TO_SDL16(bwTable[bw_palette_table[20 + i] & 0x07]);
                     }
                 } else if (palette_table) {
                     // 192 entries NGPC
@@ -647,11 +649,10 @@ void myGraphicsBlitLine(unsigned char render)
                 drawSprites(draw, mySprPri40->refs, mySprPri40->count, x0, x1);
 
                 // plans + 0x80 entre les deux
-                const uint8_t frame1 = *frame1Pri;
                 const uint8_t sfX = *scrollFrontX, sfY = (uint8_t)(*scrollFrontY + y);
                 const uint8_t sbX = *scrollBackX,  sbY = (uint8_t)(*scrollBackY  + y);
 
-                if (frame1 & 0x80) {
+                if (plane2_front) {
                     // FRONT, SPRITES 0x80, BACK
                     drawScrollPlane(draw, tile_table_front,  64,  sfX, sfY, x0, x1, is_bw);
                     drawSprites(draw, mySprPri80->refs, mySprPri80->count, x0, x1);
