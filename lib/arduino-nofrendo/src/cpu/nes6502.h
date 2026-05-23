@@ -105,6 +105,7 @@ extern "C"
    extern int nes6502_execute(int total_cycles);
    extern void nes6502_nmi(void);
    extern void nes6502_irq(void);
+   extern void nes6502_clear_irq_pending(void);
    extern uint8 nes6502_getbyte(uint32 address);
    extern uint32 nes6502_getcycles(bool reset_flag);
    extern void nes6502_burn(int cycles);

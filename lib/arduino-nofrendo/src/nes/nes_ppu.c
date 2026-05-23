@@ -132,6 +132,7 @@ ppu_t *ppu_create(void)
 
    temp->latchfunc = NULL;
    temp->vromswitch = NULL;
+   temp->bgfunc = NULL;
    temp->vram_present = false;
    temp->drawsprites = true;
 
@@ -597,6 +598,16 @@ void ppu_setvromswitch(ppuvromswitch_t func)
    ppu.vromswitch = func;
 }
 
+void ppu_setbgfunc(ppubgfunc_t func)
+{
+   ppu.bgfunc = func;
+}
+
+bool ppu_obj_8x16(void)
+{
+   return (16 == ppu.obj_height);
+}
+
 /* rendering routines */
 INLINE void draw_bgtile(uint8 *surface, uint8 pat1, uint8 pat2,
                         const uint8 *colors)
@@ -748,12 +759,17 @@ static void ppu_renderbg(uint8 *vidbuf)
    {
       /* Tile number from nametable */
       tile_index = *tile_ptr++;
-      data_ptr = &PPU_MEM(bg_offset + (tile_index << 4));
 
       /* Handle $FD/$FE tile VROM switching (PunchOut) */
       if (ppu.latchfunc)
          ppu.latchfunc(ppu.bg_base, tile_index);
 
+      if (NULL == ppu.bgfunc ||
+          false == ppu.bgfunc(refresh_vaddr + x_tile, tile_index,
+                              (uint8)(bg_offset & 7), &col_high, &data_ptr))
+      {
+         data_ptr = &PPU_MEM(bg_offset + (tile_index << 4));
+      }
       draw_bgtile(bmp_ptr, data_ptr[0], data_ptr[8], ppu.palette + col_high);
       bmp_ptr += 8;
 
