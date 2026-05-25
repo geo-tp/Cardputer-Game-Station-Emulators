@@ -6,7 +6,6 @@
 #include "vfs/vfs_xip.h"
 #include "vfs/rom_flash_io.h"
 #include "vfs/rom_xip.h"
-#include "vfs/partitioner.h"
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
@@ -95,31 +94,12 @@ void setup() {
 
   // Copy the ROM file to the partition
   size_t romSize = 0;
-  if (!copyFileToPartition(romPath.c_str(), romPart, &romSize, CardputerView::copyProgress, &display)) {
-    // User is using the launcher
-    if (isLauncherLayout()) {
-      // Ask to flash the launcher Game Station partition to unlock full size
-      ConfirmationSelector confirm(display, input);
-      bool confirmed = confirm.select("ROM IS TOO HEAVY", "Change to 4MB layout?");
-      
-      if (confirmed) {
-        display.topBar("FLASHING PARTITIONS", false, false);
-        display.subMessage("Allow up to 4MB roms", 3000);
-        auto ok = flashGameStationPartition();
-        if (ok) {
-          display.subMessage("Success, rebooting...", 3000);
-          saveLastGameToNvs(romPath);
-          esp_restart();
-        } else {
-          display.subMessage("Partition flashing failed", 3000);
-        }
-      }
-    }
-    // Rom limit is reached (either launcher default 1MB/4MB or normal 5.5MB)
+  if (!copyFileToPartition(romPath.c_str(), romPart, &romSize, CardputerView::copyProgress, &display)) {    
+    // Rom limit is reached for the current SPIFFS layout
     while (1) {
         display.topBar("ROM IS TOO HEAVY", false, false);
-        display.subMessage("Copy ROM to flash failed", 1500);
-        display.subMessage("ROM limit is reached", 1500);
+        display.subMessage("If you're using launcher",2000);
+        display.subMessage("Increase SPIFFS layout", 2000);
         delay(1500);
     }
   }
