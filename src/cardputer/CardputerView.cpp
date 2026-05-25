@@ -32,6 +32,8 @@ void CardputerView::initialize() {
     Display->fillScreen(BACKGROUND_COLOR);
     Display->setTextDatum(middle_center);
     Display->setFont(&fonts::Font0);
+    glass2Init();
+    _g2_context = "";
 }
 
 void CardputerView::showKeymapping(uint8_t numButtons) {
@@ -189,6 +191,7 @@ void CardputerView::welcome() {
     Display->printf("%s", title.c_str());
 
     Display->setSwapBytes(false);
+    glass2Show("GAME STATION");
 }
 
 void CardputerView::topBar(const std::string& title, bool submenu, bool searchBar) {
@@ -224,6 +227,8 @@ void CardputerView::topBar(const std::string& title, bool submenu, bool searchBa
         offsetX = getCenterOffset(truncatedTitle, Display->width());
         Display->setCursor(offsetX, marginY);
         Display->printf(truncatedTitle.c_str());
+        _g2_context = truncatedTitle;
+        glass2Show(_g2_context.c_str());
     }
 }
 

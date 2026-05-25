@@ -29,6 +29,7 @@
 #include "esp_task_wdt.h"
 #include "share/input.h"
 #include "share/emu_log_cpp.h"
+#include "cardputer/glass2.h"
 
 void setup() {
   // Set high priority for the current task (where the emulator will run)
@@ -176,6 +177,9 @@ void setup() {
   // Prepare rom filename for emulators
   auto pos = romPath.find_last_of("/\\");
   std::string romName = (pos == std::string::npos) ? romPath : romPath.substr(pos + 1);
+
+  // Clear Glass2 before emulator takes over all RAM
+  glass2Clear();
 
   // Initialize I2C M5Stack JoyV2 if any
   share::detectI2cPad();

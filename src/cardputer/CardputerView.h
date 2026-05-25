@@ -7,6 +7,7 @@
 #include <string>
 #include <cstring>
 #include <M5Cardputer.h>
+#include "glass2.h"
 
 // SIZING
 #define DEFAULT_MARGIN 5
@@ -83,7 +84,8 @@ public:
     void displaySnesInfo();
     void displayMsxInfo();
 private:
-    static M5GFX* Display; 
+    static M5GFX* Display;
+    std::string _g2_context;
     void drawRect(bool selected, uint8_t margin, uint16_t startY, uint16_t sizeX, uint16_t sizeY, uint16_t stepY);
     void drawSubMenuReturn(uint8_t x, uint8_t y);
     void drawSearchIcon(int x, int y, int size, uint16_t color);
