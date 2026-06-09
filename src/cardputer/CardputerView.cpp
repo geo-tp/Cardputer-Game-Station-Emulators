@@ -3,7 +3,6 @@
 #include "CardputerView.h"
 #include "CardputerInput.h"
 #include "share/emu_log_cpp.h"
-#include "Welcome.h"
 
 M5GFX* CardputerView::Display = nullptr;
 
@@ -32,6 +31,171 @@ void CardputerView::initialize() {
     Display->fillScreen(BACKGROUND_COLOR);
     Display->setTextDatum(middle_center);
     Display->setFont(&fonts::Font0);
+}
+
+static uint16_t welcomeRgb(uint8_t r, uint8_t g, uint8_t b) {
+    return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+}
+
+static void welcomeShadow(M5GFX* display, int x, int y, int w, int h) {
+    display->fillRoundRect(x + 2, y + 3, w, h, 5, welcomeRgb(10, 13, 15));
+}
+
+static void welcomeDpad(M5GFX* display, int x, int y, uint16_t color) {
+    display->fillRect(x + 3, y, 4, 10, color);
+    display->fillRect(x, y + 3, 10, 4, color);
+}
+
+static void welcomeButton(M5GFX* display, int x, int y, uint16_t color) {
+    display->fillCircle(x, y, 2, color);
+    display->drawCircle(x, y, 2, welcomeRgb(18, 20, 22));
+}
+
+static void welcomeBackground(M5GFX* display) {
+    display->fillScreen(welcomeRgb(31, 41, 46));
+
+    for (int y = 0; y < 135; y += 2) {
+        for (int x = 0; x < 240; x += 3) {
+            uint16_t n = (uint16_t)((x * 17 + y * 29 + (x * y)) & 31);
+            if (n == 0) {
+                display->drawPixel(x, y, welcomeRgb(57, 65, 67));
+            } else if (n < 4) {
+                display->drawPixel(x, y, welcomeRgb(43, 54, 59));
+            } else if (n > 28) {
+                display->drawPixel(x, y, welcomeRgb(22, 31, 36));
+            }
+        }
+    }
+
+    for (int y = 48; y < 135; y += 11) {
+        display->drawFastHLine(0, y, 240, welcomeRgb(25, 35, 40));
+    }
+}
+
+static void welcomeDrawNes(M5GFX* display, int x, int y) {
+    const uint16_t shell = welcomeRgb(188, 187, 158);
+    const uint16_t side = welcomeRgb(126, 127, 113);
+    const uint16_t dark = welcomeRgb(45, 49, 48);
+
+    welcomeShadow(display, x, y, 40, 24);
+    display->fillRoundRect(x + 2, y + 2, 34, 20, 3, shell);
+    display->fillTriangle(x + 2, y + 2, x + 12, y - 4, x + 36, y + 2, shell);
+    display->fillTriangle(x + 36, y + 2, x + 42, y - 2, x + 36, y + 22, side);
+    display->drawRoundRect(x + 2, y + 2, 34, 20, 3, dark);
+    display->drawLine(x + 12, y - 3, x + 42, y - 2, dark);
+    display->drawLine(x + 36, y + 2, x + 42, y - 2, dark);
+    display->fillRect(x + 9, y + 6, 18, 3, welcomeRgb(92, 93, 84));
+    display->fillRect(x + 9, y + 11, 17, 3, dark);
+    display->fillRect(x + 7, y + 18, 3, 2, welcomeRgb(219, 52, 38));
+}
+
+static void welcomeDrawSnes(M5GFX* display, int x, int y) {
+    const uint16_t shell = welcomeRgb(38, 46, 47);
+    const uint16_t edge = welcomeRgb(93, 102, 101);
+
+    welcomeShadow(display, x, y, 41, 28);
+    display->fillRoundRect(x, y, 41, 26, 5, shell);
+    display->drawRoundRect(x, y, 41, 26, 5, edge);
+    display->fillRoundRect(x + 10, y + 7, 22, 10, 3, welcomeRgb(18, 22, 24));
+    display->drawFastHLine(x + 14, y + 11, 14, welcomeRgb(71, 78, 79));
+    display->fillCircle(x + 8, y + 20, 2, welcomeRgb(158, 37, 34));
+    display->fillCircle(x + 32, y + 20, 2, welcomeRgb(31, 34, 35));
+}
+
+static void welcomeDrawGenesis(M5GFX* display, int x, int y) {
+    const uint16_t shell = welcomeRgb(31, 36, 38);
+    const uint16_t edge = welcomeRgb(89, 96, 96);
+
+    welcomeShadow(display, x, y, 55, 27);
+    display->fillRoundRect(x, y, 55, 25, 10, shell);
+    display->drawRoundRect(x, y, 55, 25, 10, edge);
+    display->fillRoundRect(x + 12, y + 5, 31, 11, 6, welcomeRgb(18, 21, 22));
+    display->drawRoundRect(x + 17, y + 7, 22, 6, 3, welcomeRgb(75, 83, 84));
+    display->fillRect(x + 19, y + 21, 10, 2, welcomeRgb(220, 59, 33));
+    display->fillRect(x + 34, y + 21, 5, 2, welcomeRgb(116, 119, 112));
+}
+
+static void welcomeDrawPce(M5GFX* display, int x, int y) {
+    const uint16_t shell = welcomeRgb(221, 215, 174);
+    const uint16_t edge = welcomeRgb(91, 89, 73);
+
+    welcomeShadow(display, x, y, 35, 32);
+    display->fillRoundRect(x, y, 35, 31, 2, shell);
+    display->drawRoundRect(x, y, 35, 31, 2, edge);
+    display->fillRect(x + 6, y + 7, 23, 10, welcomeRgb(239, 232, 188));
+    display->drawRect(x + 6, y + 7, 23, 10, edge);
+    display->fillRect(x + 7, y + 24, 5, 4, welcomeRgb(73, 76, 69));
+    display->fillRect(x + 16, y + 24, 9, 4, welcomeRgb(73, 76, 69));
+    display->fillRect(x + 27, y + 24, 5, 4, welcomeRgb(73, 76, 69));
+    display->drawFastHLine(x + 12, y + 12, 12, welcomeRgb(118, 123, 117));
+}
+
+static void welcomeDrawGameBoy(M5GFX* display, int x, int y) {
+    const uint16_t shell = welcomeRgb(199, 192, 143);
+    const uint16_t edge = welcomeRgb(69, 68, 55);
+
+    welcomeShadow(display, x, y, 29, 44);
+    display->fillRoundRect(x, y, 29, 43, 3, shell);
+    display->drawRoundRect(x, y, 29, 43, 3, edge);
+    display->fillRect(x + 5, y + 5, 18, 17, welcomeRgb(48, 59, 54));
+    display->drawRect(x + 5, y + 5, 18, 17, edge);
+    display->fillRect(x + 9, y + 9, 10, 9, welcomeRgb(148, 157, 80));
+    welcomeDpad(display, x + 6, y + 28, welcomeRgb(65, 65, 66));
+    welcomeButton(display, x + 20, y + 30, welcomeRgb(151, 54, 65));
+    welcomeButton(display, x + 25, y + 26, welcomeRgb(151, 54, 65));
+    display->drawFastHLine(x + 12, y + 37, 4, edge);
+    display->drawFastHLine(x + 19, y + 37, 4, edge);
+}
+
+static void welcomeDrawWideHandheld(M5GFX* display, int x, int y) {
+    const uint16_t shell = welcomeRgb(192, 183, 155);
+    const uint16_t edge = welcomeRgb(45, 48, 47);
+
+    welcomeShadow(display, x, y, 47, 22);
+    display->fillRoundRect(x, y, 47, 21, 5, shell);
+    display->drawRoundRect(x, y, 47, 21, 5, edge);
+    display->fillRoundRect(x + 14, y + 4, 22, 13, 2, welcomeRgb(27, 37, 39));
+    welcomeDpad(display, x + 5, y + 7, welcomeRgb(40, 45, 45));
+    welcomeButton(display, x + 40, y + 9, welcomeRgb(92, 91, 83));
+}
+
+static void welcomeDrawSmallHandheld(M5GFX* display, int x, int y) {
+    const uint16_t shell = welcomeRgb(205, 196, 159);
+    const uint16_t edge = welcomeRgb(60, 62, 58);
+
+    welcomeShadow(display, x, y, 39, 27);
+    display->fillRoundRect(x, y, 39, 26, 10, shell);
+    display->drawRoundRect(x, y, 39, 26, 10, edge);
+    display->fillRoundRect(x + 14, y + 5, 15, 13, 2, welcomeRgb(48, 59, 58));
+    welcomeDpad(display, x + 5, y + 9, welcomeRgb(56, 58, 57));
+    welcomeButton(display, x + 33, y + 10, welcomeRgb(68, 69, 66));
+    display->drawFastHLine(x + 18, y + 21, 8, edge);
+}
+
+static void welcomeDrawGameGear(M5GFX* display, int x, int y) {
+    const uint16_t shell = welcomeRgb(40, 54, 57);
+    const uint16_t edge = welcomeRgb(17, 23, 25);
+
+    welcomeShadow(display, x, y, 68, 32);
+    display->fillRoundRect(x, y, 68, 31, 6, shell);
+    display->drawRoundRect(x, y, 68, 31, 6, edge);
+    display->fillRoundRect(x + 22, y + 7, 25, 15, 2, welcomeRgb(30, 38, 39));
+    display->drawRect(x + 25, y + 9, 19, 11, welcomeRgb(62, 73, 74));
+    welcomeDpad(display, x + 8, y + 11, welcomeRgb(24, 30, 31));
+    welcomeButton(display, x + 55, y + 11, welcomeRgb(25, 31, 32));
+    welcomeButton(display, x + 61, y + 15, welcomeRgb(25, 31, 32));
+}
+
+static void welcomeDrawProceduralSplash(M5GFX* display) {
+    welcomeBackground(display);
+    welcomeDrawNes(display, 6, 11);
+    welcomeDrawSnes(display, 66, 9);
+    welcomeDrawGenesis(display, 122, 9);
+    welcomeDrawPce(display, 198, 8);
+    welcomeDrawGameBoy(display, 9, 84);
+    welcomeDrawWideHandheld(display, 57, 98);
+    welcomeDrawSmallHandheld(display, 116, 94);
+    welcomeDrawGameGear(display, 163, 94);
 }
 
 void CardputerView::showKeymapping(uint8_t numButtons) {
@@ -174,12 +338,17 @@ void CardputerView::showKeymapping6ButtonsSnes() {
 }
 
 void CardputerView::welcome() {
+<<<<<<< HEAD
     Display->setSwapBytes(true);
 
     // Remove the welcome image from the binary to save space in case REMOVE_PRINTF is not defined
     #ifdef REMOVE_PRINTF
         Display->pushImage(0, 0, BGGAMESTATION_S_WIDTH, BGGAMESTATION_S_HEIGHT, bggamestation_s);
     #endif
+=======
+    Display->setSwapBytes(false);
+    welcomeDrawProceduralSplash(Display);
+>>>>>>> bd31466 (Reworked welcome screen)
    
     // Title
     std::string title = "Game Station 1.2";
