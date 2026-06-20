@@ -2,9 +2,11 @@
 
 #include "run_msx.h"
 
-#define word arduino_word
 #include <M5Cardputer.h>
+#ifdef word
 #undef word
+#endif
+#define word arduino_word
 #include <cstdio>
 #include <cstring>
 #include <strings.h>
@@ -15,6 +17,7 @@
 extern "C" {
 #include "fMSX/MSX.h"
 }
+#undef word
 
 namespace {
 

@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "esp_spi_flash.h"
+#include "esp_spiffs.h"
 
 
 const esp_partition_t* findRomPartition(const char* name) {

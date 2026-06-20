@@ -405,7 +405,7 @@ void	PSG_Envelope_SetPeriod(void)
 }
 
 
-INLINE void	Envelope_Update(FIXED_POINT16 *pUpdate)
+static INLINE void	Envelope_Update(FIXED_POINT16 *pUpdate)
 {
 	int NoOfCycles;
 
@@ -455,7 +455,7 @@ INLINE void	UpdateChannelToneState(int ChannelIndex, FIXED_POINT16 *pUpdate)
 	pChannelPeriod->PeriodPosition.FixedPoint.L &= 0x0ffff;
 }
 
-INLINE void	NoiseChooseOutput(void)
+static INLINE void	NoiseChooseOutput(void)
 {
 	/* Is noise output going to change? */
 	if ((RNG + 1) & 2)	/* (bit0^bit1)? */
@@ -511,7 +511,7 @@ void	InitNoisePeriod(void)
 	NewNoiseUpdate.FixedPoint.L = Update.FixedPoint.L/Period; 
 }
 
-INLINE int	GetMixedOutputForChannel(int ChannelIndex)
+static INLINE int	GetMixedOutputForChannel(int ChannelIndex)
 {
 	unsigned long Mixer = PSGPlay_Registers[7];
 	unsigned long ChannelMask = (1<<ChannelIndex);
@@ -556,7 +556,7 @@ INLINE int	GetMixedOutputForChannel(int ChannelIndex)
 	return ChannelToneOutput & ChannelNoiseOutput;
 }
 
-INLINE int	GetFinalVolumeForChannel(int ChannelIndex)
+static INLINE int	GetFinalVolumeForChannel(int ChannelIndex)
 {
 	unsigned long ChannelOutput;
 	int ChannelOutputVolume;

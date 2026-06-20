@@ -3,6 +3,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include "esp_timer.h"
+#include "esp_rom_sys.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "pce-go.h"
 #include "gfx.h"
@@ -357,10 +361,10 @@ void RunPCE(void)
 
         if (remain > 2000) {
             // gros reste
-            vTaskDelay(remain / 1000);
+            vTaskDelay(pdMS_TO_TICKS(remain / 1000));
         } else if (remain > 0) {
             // petit reste
-            ets_delay_us((uint32_t)remain);
+            esp_rom_delay_us((uint32_t)remain);
         } else if (remain < -(int64_t)frameDurationUs) {
             // en retard
             nextFrameTime = now;

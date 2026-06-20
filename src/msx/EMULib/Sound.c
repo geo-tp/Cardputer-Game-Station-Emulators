@@ -18,6 +18,9 @@
 #include <string.h>
 #include <stdlib.h>
 
+unsigned int InitAudio(unsigned int Rate,unsigned int Latency);
+void TrashAudio(void);
+
 #if defined(UNIX) || defined(MAEMO) || defined(STMP3700) || defined(NXC2600) || defined(ANDROID)
 #include <unistd.h>
 #endif

@@ -1,3 +1,70 @@
+/* Minimal active subset used by the embedded ProSystem port. */
+#ifndef __CARDPUTER_LIBRETRO_STDSTRING_MINIMAL_H
+#define __CARDPUTER_LIBRETRO_STDSTRING_MINIMAL_H
+
+#include <stdbool.h>
+#include <ctype.h>
+#include <string.h>
+
+#ifndef ISDIGIT
+#define ISDIGIT(c) isdigit((unsigned char)(c))
+#endif
+
+static inline bool string_is_empty(const char *data)
+{
+   return !data || (*data == '\0');
+}
+
+static inline bool string_is_equal(const char *a, const char *b)
+{
+   return (a && b) ? !strcmp(a, b) : false;
+}
+
+static inline bool string_is_equal_case_insensitive(const char *a, const char *b)
+{
+   if (!a || !b)
+      return false;
+
+   while (*a && *b)
+   {
+      const int ca = tolower((unsigned char)*a++);
+      const int cb = tolower((unsigned char)*b++);
+      if (ca != cb)
+         return false;
+   }
+
+   return *a == *b;
+}
+
+#define string_is_equal_noncase string_is_equal_case_insensitive
+
+static inline bool string_starts_with_size(const char *str, const char *prefix, size_t size)
+{
+   return (str && prefix) ? !strncmp(prefix, str, size) : false;
+}
+
+static inline bool string_starts_with(const char *str, const char *prefix)
+{
+   return (str && prefix) ? !strncmp(prefix, str, strlen(prefix)) : false;
+}
+
+static inline char *string_to_lower(char *s)
+{
+   char *cs = s;
+   if (!cs)
+      return s;
+
+   while (*cs)
+   {
+      *cs = (char)tolower((unsigned char)*cs);
+      cs++;
+   }
+
+   return s;
+}
+
+#endif
+
 // /* Copyright  (C) 2010-2020 The RetroArch team
 //  *
 //  * ---------------------------------------------------------------------------------------

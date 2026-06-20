@@ -1079,7 +1079,7 @@ int		Z80_GetNopCountForInstruction(Z80_WORD Addr, Z80_BYTE Flags)
 									/* 00010000 - DJNZ */
 									/* 00011000 - JR */
 
-									unsigned char *Instruction;
+									const char *Instruction;
 
 									if (Opcode==0x010)
 									{

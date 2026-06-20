@@ -11,6 +11,7 @@ $Rev: 71 $
 #include "WS.h"
 #include "WSApu.h"
 #include "WSInput.h"
+#include "WSFileio.h"
 #include "WSPdata.h"
 #include "WSBandai.h"
 #include "cpu/necintrf.h"

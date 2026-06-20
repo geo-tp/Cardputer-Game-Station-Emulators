@@ -46,7 +46,9 @@ void	CRTC_MonitorReset(void);
 #include "headers.h"
 
 
+#ifndef LESS_MULTS
 #define LESS_MULTS
+#endif
 
 
 /*******************************************************/
