@@ -99,9 +99,9 @@ static void rebuild_zoom_maps(int zp)
     const int roiX0 = (kSrcW - roiW) / 2;
     const int roiY0 = (kSrcH - roiH) / 2;
     for (int x = 0; x < kDstW; ++x)
-        g_host.xmapZoom[x] = (uint16_t)(roiX0 + (int64_t)x * roiW / kDstW);
+        g_host.xmapZoom[x] = (uint16_t)(roiX0 + (x * roiW) / kDstW);
     for (int y = 0; y < kDstH; ++y)
-        g_host.ymapZoom[y] = (uint16_t)(roiY0 + (int64_t)y * roiH / kDstH);
+        g_host.ymapZoom[y] = (uint16_t)(roiY0 + (y * roiH) / kDstH);
     g_host.zoomMapBuiltFor = zp;
 }
 

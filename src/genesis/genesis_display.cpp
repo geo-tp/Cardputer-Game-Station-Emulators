@@ -50,8 +50,8 @@ static inline int clampi(int v, int lo, int hi) {
 /* Calculate centered Region of Interest */
 static inline void compute_centered_roi(int srcW, int srcH) {
   int zp = (genesisZoomPercent <= 0) ? 100 : genesisZoomPercent;
-  int roiW = (int)((int64_t)srcW * 100 / zp);
-  int roiH = (int)((int64_t)srcH * 100 / zp);
+  int roiW = (srcW * 100) / zp;
+  int roiH = (srcH * 100) / zp;
 
   // Bornes
   roiW = clampi(roiW, 16, srcW);
@@ -85,7 +85,7 @@ static inline void ensure_xmap_roi(int srcW, int dstW, int roiX0, int roiW) {
 
   // x -> roiX0 + x * roiW / dstW
   for (int x = 0; x < dstW; ++x) {
-    s_xmap[x] = (uint16_t)(roiX0 + (int)((int64_t)x * roiW / dstW));
+    s_xmap[x] = (uint16_t)(roiX0 + ((x * roiW) / dstW));
   }
 }
 
@@ -181,7 +181,7 @@ void display_task(void* arg) {
     int srcLineP1 = m.line + 1;
     int relP1     = srcLineP1 - s_roiY0;
     relP1 = clampi(relP1, 0, s_roiH);
-    int dstY_end  = g_viewY0 + (int)((int64_t)relP1 * g_viewH / s_roiH);
+    int dstY_end  = g_viewY0 + ((relP1 * g_viewH) / s_roiH);
 
     int linesToPush = dstY_end - prevDstY;
 
