@@ -1,8 +1,11 @@
 #pragma GCC optimize ("Os")
 
+#include <algorithm>
+
 #include "CardputerView.h"
 #include "CardputerInput.h"
 #include "share/emu_log_cpp.h"
+#include "share/utf8_text.h"
 #include "Welcome.h"
 
 M5GFX* CardputerView::Display = nullptr;
@@ -362,6 +365,9 @@ void CardputerView::verticalSelectionSimple(
     size_t currentStartRow = selectedIndex / visibleRows * visibleRows;
 
     clearMainView();
+    Display->setFont(&fonts::efontCN_16);
+    Display->setTextSize(1);
+    Display->setTextDatum(textdatum_t::top_left);
 
     for (size_t i = 0; i < visibleRows; ++i) {
         size_t index = currentStartRow + i;
@@ -372,9 +378,6 @@ void CardputerView::verticalSelectionSimple(
         int y = TOP_BAR_HEIGHT + (i * 26);
 
         drawRect(isSelected, DEFAULT_MARGIN, y, Display->width() - 13, 22, 0);
-
-        Display->setCursor(x + 10, y + 12);
-        Display->setTextSize(TEXT_LARGE);
 
         // Color by extension
         std::string name = options[index];
@@ -392,8 +395,18 @@ void CardputerView::verticalSelectionSimple(
         } 
         Display->setTextColor(color);
 
-        Display->printf(truncateString(name, 20).c_str());
+        size_t maxCharacters = std::min<size_t>(20, share::utf8CharacterCount(name));
+        std::string visibleName = name;
+        const int maxTextWidth = Display->width() - (x + 10) - DEFAULT_MARGIN;
+        while (Display->textWidth(visibleName.c_str()) > maxTextWidth && maxCharacters > 3) {
+            visibleName = truncateString(name, --maxCharacters);
+        }
+        Display->drawString(visibleName.c_str(), x + 10, y + 3);
     }
+
+    Display->setTextDatum(middle_center);
+    Display->setFont(&fonts::Font0);
+    Display->setTextSize(TEXT_MEDIUM);
 }
 
 void CardputerView::drawSelectedRowMarquee(const std::string& text,
@@ -413,7 +426,8 @@ void CardputerView::drawSelectedRowMarquee(const std::string& text,
     const int viewX = boxX + padL;
     const int viewW = boxW  - padL - viewPadR;
 
-    Display->setTextSize(TEXT_LARGE);
+    Display->setFont(&fonts::efontCN_16);
+    Display->setTextSize(1);
     Display->setTextColor(TEXT_COLOR);
 
     Display->setTextWrap(false);
@@ -426,6 +440,8 @@ void CardputerView::drawSelectedRowMarquee(const std::string& text,
 
     Display->clearClipRect();
     Display->setTextDatum(middle_center);
+    Display->setFont(&fonts::Font0);
+    Display->setTextSize(TEXT_MEDIUM);
 }
 
 void CardputerView::verticalSelectionWithLabelsAndShortcuts(
@@ -918,21 +934,7 @@ void CardputerView::drawMinusIcon(int x, int y, uint16_t color) {
 
 
 std::string CardputerView::truncateString(const std::string& input, size_t maxLength) {
-    const std::string ellipsis = "...";
-
-    if (input.length() <= maxLength) {
-        return input;
-    }
-
-    // Calcul char number each side
-    size_t halfLength = (maxLength - ellipsis.length()) / 2;
-
-    // Start of the fist string, end of the second
-    std::string firstPart = input.substr(0, halfLength);
-    std::string secondPart = input.substr(input.length() - halfLength);
-
-    // Concat with "..."
-    return firstPart + ellipsis + secondPart;
+    return share::truncateUtf8(input, maxLength);
 }
 
 void CardputerView::adjustTextSizeToFit(const std::string& text, uint16_t maxWidth, float textSize) {

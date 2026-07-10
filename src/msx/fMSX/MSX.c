@@ -15,7 +15,7 @@
 /*************************************************************/
 
 #include "MSX.h"
-#include "Sound.h"
+#include "../EMULib/Sound.h"
 #ifndef NO_FLOPPY
 #include "Floppy.h"
 #endif
