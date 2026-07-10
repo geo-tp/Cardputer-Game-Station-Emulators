@@ -5,6 +5,16 @@ The build uses a revised 8 MB partition table:
 - Application: 3 MB
 - ROM storage (SPIFFS): 4.94 MB
 
+## Build and package
+
+From the project root, run this single command:
+
+```sh
+pio run -e m5stack-stamps3 -t package
+```
+
+It compiles the firmware and writes both images to `dist/`.
+
 Use the complete flash image when upgrading from the stock 2.5 MB application
 layout. It includes the bootloader, partition table, and firmware, and must be
 written at address `0x0`.

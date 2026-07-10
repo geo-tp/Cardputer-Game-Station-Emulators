@@ -14,6 +14,7 @@
 ```sh
 g++ -std=c++17 -Isrc test/test_utf8_text.cpp -o /tmp/test_utf8_text && /tmp/test_utf8_text
 pio run -e m5stack-stamps3
+pio run -e m5stack-stamps3 -t package
 ```
 
 ## Resolved build blocker

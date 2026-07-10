@@ -3,9 +3,9 @@
 1. Add a small, platform-independent UTF-8 truncation helper.
 2. Cover its ASCII, Chinese, mixed-text, and malformed-byte behaviour with a
    host-side C++ test.
-3. Use M5GFX's bundled Simplified-Chinese `efontCN_10`, scaled to the existing
-   list height, only while drawing ROM filenames and the selected-row marquee;
-   then restore the normal UI font.
+3. Use M5GFX's bundled 16-pixel Simplified-Chinese `efontCN_16` only while
+   drawing ROM filenames and the selected-row marquee; then restore the normal
+   UI font.
 4. Run the host test and the configured firmware build. Record unrelated
    compiler failures if they prevent a full build.
 5. Fix the build-blocking fMSX include ambiguity so the requested firmware
@@ -15,9 +15,9 @@
 
 ## Decisions
 
-- `efontCN_10` is provided by the existing M5GFX dependency, so the change
-  does not add a new library or an external font asset. It keeps the firmware
-  footprint lower than the 16-pixel variant while retaining list readability.
+- `efontCN_16` is provided by the existing M5GFX dependency, so the change
+  does not add a new library or an external font asset. The native 16-pixel
+  glyphs avoid the blur caused by scaling the smaller font.
 - The feature applies to all ROM filenames because the browser is shared;
   GB/GBC needs no emulator-specific encoding conversion.
 - `MSX.c` now includes its sibling EMULib `Sound.h` explicitly. On

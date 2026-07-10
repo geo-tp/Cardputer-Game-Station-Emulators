@@ -365,8 +365,8 @@ void CardputerView::verticalSelectionSimple(
     size_t currentStartRow = selectedIndex / visibleRows * visibleRows;
 
     clearMainView();
-    Display->setFont(&fonts::efontCN_10);
-    Display->setTextSize(1.6);
+    Display->setFont(&fonts::efontCN_16);
+    Display->setTextSize(1);
     Display->setTextDatum(textdatum_t::top_left);
 
     for (size_t i = 0; i < visibleRows; ++i) {
@@ -426,8 +426,8 @@ void CardputerView::drawSelectedRowMarquee(const std::string& text,
     const int viewX = boxX + padL;
     const int viewW = boxW  - padL - viewPadR;
 
-    Display->setFont(&fonts::efontCN_10);
-    Display->setTextSize(1.6);
+    Display->setFont(&fonts::efontCN_16);
+    Display->setTextSize(1);
     Display->setTextColor(TEXT_COLOR);
 
     Display->setTextWrap(false);
